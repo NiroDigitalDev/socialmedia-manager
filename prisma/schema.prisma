@@ -62,6 +62,7 @@ model GeneratedPost {
   model         String
   includeLogo   Boolean        @default(false)
   status        String         @default("pending")
+  description   String?
   createdAt     DateTime       @default(now())
   images        GeneratedImage[]
 }

@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +29,7 @@ interface GeneratedPost {
   model: string;
   status: string;
   includeLogo: boolean;
+  description: string | null;
   createdAt: string;
   images: GeneratedImage[];
   style?: { name: string } | null;
@@ -39,6 +42,9 @@ export default function PostsPage() {
   const [selectedPost, setSelectedPost] = useState<GeneratedPost | null>(null);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [generatingDesc, setGeneratingDesc] = useState(false);
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [descDraft, setDescDraft] = useState("");
 
   const fetchPosts = useCallback(async () => {
     try {
@@ -72,6 +78,57 @@ export default function PostsPage() {
       toast.error("Failed to delete post");
     } finally {
       setDeleting(null);
+    }
+  };
+
+  const handleGenerateDescription = async (postId: string) => {
+    setGeneratingDesc(true);
+    try {
+      const res = await fetch(`/api/posts/${postId}/description`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === postId ? { ...p, description: data.description } : p
+        )
+      );
+      if (selectedPost?.id === postId) {
+        setSelectedPost((prev) =>
+          prev ? { ...prev, description: data.description } : prev
+        );
+      }
+      toast.success("Description generated!");
+    } catch {
+      toast.error("Failed to generate description");
+    } finally {
+      setGeneratingDesc(false);
+    }
+  };
+
+  const handleSaveDescription = async (postId: string) => {
+    try {
+      const res = await fetch(`/api/posts/${postId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: descDraft }),
+      });
+      if (!res.ok) throw new Error();
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === postId ? { ...p, description: descDraft } : p
+        )
+      );
+      if (selectedPost?.id === postId) {
+        setSelectedPost((prev) =>
+          prev ? { ...prev, description: descDraft } : prev
+        );
+      }
+      setEditingDesc(false);
+      toast.success("Description saved!");
+    } catch {
+      toast.error("Failed to save description");
     }
   };
 
@@ -267,6 +324,88 @@ export default function PostsPage() {
                 </p>
                 <p className="text-muted-foreground">{selectedPost.prompt}</p>
               </div>
+
+              <Separator />
+
+              {/* Description Section */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Caption / Description</span>
+                  <div className="flex gap-2">
+                    {selectedPost.description && !editingDesc && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setDescDraft(selectedPost.description || "");
+                          setEditingDesc(true);
+                        }}
+                      >
+                        Edit
+                      </Button>
+                    )}
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={generatingDesc}
+                      onClick={() => handleGenerateDescription(selectedPost.id)}
+                    >
+                      {generatingDesc
+                        ? "Generating..."
+                        : selectedPost.description
+                          ? "Regenerate"
+                          : "Generate Description"}
+                    </Button>
+                  </div>
+                </div>
+                {editingDesc ? (
+                  <div className="space-y-2">
+                    <Textarea
+                      value={descDraft}
+                      onChange={(e) => setDescDraft(e.target.value)}
+                      rows={5}
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditingDesc(false)}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => handleSaveDescription(selectedPost.id)}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                ) : selectedPost.description ? (
+                  <div className="rounded-lg bg-muted p-3">
+                    <p className="text-sm whitespace-pre-wrap">
+                      {selectedPost.description}
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => {
+                        navigator.clipboard.writeText(selectedPost.description!);
+                        toast.success("Copied to clipboard!");
+                      }}
+                    >
+                      Copy to Clipboard
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No description yet. Click &quot;Generate Description&quot; to create one using AI.
+                  </p>
+                )}
+              </div>
+
+              <Separator />
 
               {/* Actions */}
               <div className="flex gap-3">
