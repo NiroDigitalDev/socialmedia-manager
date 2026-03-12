@@ -1,0 +1,2 @@
+# socialmedia-manager
+AI Manager
