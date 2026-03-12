@@ -10,7 +10,10 @@ export async function GET(
     const post = await prisma.generatedPost.findUnique({
       where: { id },
       include: {
-        images: { orderBy: { slideNumber: "asc" } },
+        images: {
+          orderBy: { slideNumber: "asc" },
+          select: { id: true, slideNumber: true, mimeType: true },
+        },
         style: true,
       },
     });

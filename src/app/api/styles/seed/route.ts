@@ -84,7 +84,7 @@ export async function POST() {
         name: style.name,
         description: style.description,
         promptText: style.promptText,
-        sampleImageUrls: [],
+        sampleImageIds: [],
         isPredefined: true,
       })),
     });
