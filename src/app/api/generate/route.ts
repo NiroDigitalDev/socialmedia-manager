@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { generateImage, GEMINI_IMAGE_MODELS, ASPECT_RATIOS, type ModelKey, type AspectRatioKey } from "@/lib/gemini";
-import { uploadImageBase64 } from "@/lib/cloudinary";
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,23 +33,16 @@ export async function POST(request: NextRequest) {
     }
 
     if (!(model in GEMINI_IMAGE_MODELS)) {
-      return NextResponse.json(
-        { error: "Invalid model" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid model" }, { status: 400 });
     }
 
     if (!(aspectRatio in ASPECT_RATIOS)) {
-      return NextResponse.json(
-        { error: "Invalid aspect ratio" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid aspect ratio" }, { status: 400 });
     }
 
     // Build the full prompt
     let fullPrompt = prompt;
 
-    // Add style context if selected
     if (styleId) {
       const style = await prisma.style.findUnique({ where: { id: styleId } });
       if (style) {
@@ -58,7 +50,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Add brand context if logo is included
     if (includeLogo) {
       const brand = await prisma.brandSettings.findFirst();
       if (brand) {
@@ -74,7 +65,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create the post record
     const post = await prisma.generatedPost.create({
       data: {
         prompt: fullPrompt,
@@ -90,7 +80,6 @@ export async function POST(request: NextRequest) {
 
     const numSlides = format === "carousel" ? Math.min(slideCount, 10) : 1;
 
-    // Generate images in parallel
     const generateSlide = async (slideNumber: number) => {
       let slidePrompt = fullPrompt;
       if (format === "carousel" && numSlides > 1) {
@@ -99,27 +88,18 @@ export async function POST(request: NextRequest) {
 
       const result = await generateImage(slidePrompt, model, aspectRatio);
 
-      // Upload to Cloudinary
-      const uploaded = await uploadImageBase64(
-        result.base64,
-        result.mimeType,
-        `socialmedia-manager/posts/${post.id}`
-      );
-
-      // Save to DB
-      await prisma.generatedImage.create({
+      const image = await prisma.generatedImage.create({
         data: {
           postId: post.id,
           slideNumber,
-          cloudinaryUrl: uploaded.url,
-          cloudinaryPublicId: uploaded.publicId,
+          data: Buffer.from(result.base64, "base64"),
+          mimeType: result.mimeType,
         },
       });
 
-      return uploaded;
+      return image;
     };
 
-    // Generate all slides in parallel
     try {
       await Promise.all(
         Array.from({ length: numSlides }, (_, i) => generateSlide(i + 1))
@@ -137,11 +117,14 @@ export async function POST(request: NextRequest) {
       throw genError;
     }
 
-    // Return the completed post with images
+    // Return post with image IDs (not data) for the UI
     const completedPost = await prisma.generatedPost.findUnique({
       where: { id: post.id },
       include: {
-        images: { orderBy: { slideNumber: "asc" } },
+        images: {
+          orderBy: { slideNumber: "asc" },
+          select: { id: true, slideNumber: true, mimeType: true },
+        },
         style: true,
       },
     });

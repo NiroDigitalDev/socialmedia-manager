@@ -1,11 +1,21 @@
 -- CreateTable
+CREATE TABLE "StoredImage" (
+    "id" TEXT NOT NULL,
+    "data" BYTEA NOT NULL,
+    "mimeType" TEXT NOT NULL DEFAULT 'image/png',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "StoredImage_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "Style" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "description" TEXT,
     "promptText" TEXT NOT NULL,
-    "referenceImageUrl" TEXT,
-    "sampleImageUrls" TEXT[],
+    "referenceImageId" TEXT,
+    "sampleImageIds" TEXT[],
     "isPredefined" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -42,7 +52,7 @@ CREATE TABLE "BrandSettings" (
     "brandName" TEXT NOT NULL,
     "colors" TEXT[],
     "tagline" TEXT,
-    "logoUrl" TEXT,
+    "logoImageId" TEXT,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -71,8 +81,8 @@ CREATE TABLE "GeneratedImage" (
     "id" TEXT NOT NULL,
     "postId" TEXT NOT NULL,
     "slideNumber" INTEGER NOT NULL,
-    "cloudinaryUrl" TEXT NOT NULL,
-    "cloudinaryPublicId" TEXT NOT NULL,
+    "data" BYTEA NOT NULL,
+    "mimeType" TEXT NOT NULL DEFAULT 'image/png',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "GeneratedImage_pkey" PRIMARY KEY ("id")

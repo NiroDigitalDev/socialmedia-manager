@@ -17,7 +17,7 @@ interface Style {
   id: string;
   name: string;
   promptText: string;
-  sampleImageUrls: string[];
+  sampleImageIds: string[];
   isPredefined: boolean;
 }
 
@@ -28,7 +28,7 @@ interface GeneratedPost {
   aspectRatio: string;
   model: string;
   status: string;
-  images: { id: string; slideNumber: number; cloudinaryUrl: string }[];
+  images: { id: string; slideNumber: number }[];
   style?: Style;
 }
 
@@ -178,9 +178,9 @@ function GeneratePage() {
                           : "border-border hover:border-primary/50"
                       }`}
                     >
-                      {style.sampleImageUrls.length > 0 ? (
+                      {style.sampleImageIds.length > 0 ? (
                         <img
-                          src={style.sampleImageUrls[0]}
+                          src={`/api/images/${style.sampleImageIds[0]}`}
                           alt={style.name}
                           className="w-full h-16 object-cover"
                         />
@@ -387,7 +387,7 @@ function GeneratePage() {
                       {post.images.map((img) => (
                         <img
                           key={img.id}
-                          src={img.cloudinaryUrl}
+                          src={`/api/images/${img.id}?type=generated`}
                           alt={`Slide ${img.slideNumber}`}
                           className="rounded-lg w-full object-cover"
                         />

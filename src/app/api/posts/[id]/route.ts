@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { deleteImage } from "@/lib/cloudinary";
 
 export async function GET(
   _request: NextRequest,
@@ -11,7 +10,10 @@ export async function GET(
     const post = await prisma.generatedPost.findUnique({
       where: { id },
       include: {
-        images: { orderBy: { slideNumber: "asc" } },
+        images: {
+          orderBy: { slideNumber: "asc" },
+          select: { id: true, slideNumber: true, mimeType: true },
+        },
         style: true,
         contentIdea: true,
       },
@@ -65,21 +67,13 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const post = await prisma.generatedPost.findUnique({
-      where: { id },
-      include: { images: true },
-    });
+    const post = await prisma.generatedPost.findUnique({ where: { id } });
 
     if (!post) {
       return NextResponse.json({ error: "Post not found" }, { status: 404 });
     }
 
-    // Delete images from Cloudinary
-    await Promise.all(
-      post.images.map((img) => deleteImage(img.cloudinaryPublicId))
-    );
-
-    // Delete post (cascades to images)
+    // Delete post (cascades to images in DB)
     await prisma.generatedPost.delete({ where: { id } });
 
     return NextResponse.json({ success: true });

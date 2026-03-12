@@ -4,7 +4,13 @@ import { prisma } from "@/lib/prisma";
 export async function GET() {
   try {
     const brand = await prisma.brandSettings.findFirst();
-    return NextResponse.json(brand);
+    if (brand) {
+      return NextResponse.json({
+        ...brand,
+        logoUrl: brand.logoImageId ? `/api/images/${brand.logoImageId}` : null,
+      });
+    }
+    return NextResponse.json(null);
   } catch (error) {
     console.error("Fetch brand settings error:", error);
     return NextResponse.json(

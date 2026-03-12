@@ -18,7 +18,6 @@ import { toast } from "sonner";
 interface GeneratedImage {
   id: string;
   slideNumber: number;
-  cloudinaryUrl: string;
 }
 
 interface GeneratedPost {
@@ -34,6 +33,10 @@ interface GeneratedPost {
   images: GeneratedImage[];
   style?: { name: string } | null;
   contentIdea?: { ideaText: string; contentType: string } | null;
+}
+
+function imgUrl(id: string) {
+  return `/api/images/${id}?type=generated`;
 }
 
 export default function PostsPage() {
@@ -184,7 +187,7 @@ export default function PostsPage() {
               <div className="relative">
                 {post.images[0] ? (
                   <img
-                    src={post.images[0].cloudinaryUrl}
+                    src={imgUrl(post.images[0].id)}
                     alt="Post"
                     className="w-full aspect-[4/5] object-cover"
                   />
@@ -245,7 +248,7 @@ export default function PostsPage() {
                 {selectedPost.images.length > 0 && (
                   <>
                     <img
-                      src={selectedPost.images[currentSlide]?.cloudinaryUrl}
+                      src={selectedPost.images[currentSlide] ? imgUrl(selectedPost.images[currentSlide].id) : ""}
                       alt={`Slide ${currentSlide + 1}`}
                       className="w-full rounded-lg"
                     />
@@ -301,7 +304,7 @@ export default function PostsPage() {
                       }`}
                     >
                       <img
-                        src={img.cloudinaryUrl}
+                        src={imgUrl(img.id)}
                         alt={`Slide ${idx + 1}`}
                         className="w-16 h-20 object-cover"
                       />

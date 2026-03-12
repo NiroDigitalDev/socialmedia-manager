@@ -20,7 +20,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, description, promptText, referenceImageUrl, sampleImageUrls } =
+    const { name, description, promptText, referenceImageId, sampleImageIds } =
       body;
 
     if (!name || !promptText) {
@@ -35,8 +35,8 @@ export async function POST(request: Request) {
         name,
         description: description || null,
         promptText,
-        referenceImageUrl: referenceImageUrl || null,
-        sampleImageUrls: sampleImageUrls || [],
+        referenceImageId: referenceImageId || null,
+        sampleImageIds: sampleImageIds || [],
         isPredefined: false,
       },
     });

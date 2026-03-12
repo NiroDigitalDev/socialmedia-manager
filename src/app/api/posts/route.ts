@@ -5,7 +5,10 @@ export async function GET() {
   try {
     const posts = await prisma.generatedPost.findMany({
       include: {
-        images: { orderBy: { slideNumber: "asc" } },
+        images: {
+          orderBy: { slideNumber: "asc" },
+          select: { id: true, slideNumber: true, mimeType: true },
+        },
         style: true,
         contentIdea: true,
       },

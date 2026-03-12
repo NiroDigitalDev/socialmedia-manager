@@ -7,16 +7,24 @@ datasource db {
   provider = "postgresql"
 }
 
+// Generic image storage for styles, brand logos, etc.
+model StoredImage {
+  id        String   @id @default(cuid())
+  data      Bytes
+  mimeType  String   @default("image/png")
+  createdAt DateTime @default(now())
+}
+
 model Style {
-  id                String   @id @default(cuid())
-  name              String
-  description       String?
-  promptText        String
-  referenceImageUrl String?
-  sampleImageUrls   String[]
-  isPredefined      Boolean  @default(false)
-  createdAt         DateTime @default(now())
-  posts             GeneratedPost[]
+  id               String   @id @default(cuid())
+  name             String
+  description      String?
+  promptText       String
+  referenceImageId String?
+  sampleImageIds   String[]
+  isPredefined     Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  posts            GeneratedPost[]
 }
 
 model ContentSource {
@@ -41,13 +49,13 @@ model ContentIdea {
 }
 
 model BrandSettings {
-  id        String   @id @default(cuid())
-  brandName String
-  colors    String[]
-  tagline   String?
-  logoUrl   String?
-  updatedAt DateTime @updatedAt
-  createdAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  brandName   String
+  colors      String[]
+  tagline     String?
+  logoImageId String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
 }
 
 model GeneratedPost {
@@ -68,11 +76,11 @@ model GeneratedPost {
 }
 
 model GeneratedImage {
-  id                 String        @id @default(cuid())
-  postId             String
-  post               GeneratedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  slideNumber        Int
-  cloudinaryUrl      String
-  cloudinaryPublicId String
-  createdAt          DateTime      @default(now())
+  id          String        @id @default(cuid())
+  postId      String
+  post        GeneratedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  slideNumber Int
+  data        Bytes
+  mimeType    String        @default("image/png")
+  createdAt   DateTime      @default(now())
 }

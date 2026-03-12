@@ -31,8 +31,8 @@ interface Style {
   name: string;
   description: string | null;
   promptText: string;
-  referenceImageUrl: string | null;
-  sampleImageUrls: string[];
+  referenceImageId: string | null;
+  sampleImageIds: string[];
   isPredefined: boolean;
   createdAt: string;
 }
@@ -73,8 +73,8 @@ export default function StylesPage() {
   const [imageDescription, setImageDescription] = useState("");
   const [imageAnalysisResult, setImageAnalysisResult] = useState<{
     promptText: string;
-    referenceImageUrl: string;
-    sampleImageUrls: string[];
+    referenceImageId: string;
+    sampleImageIds: string[];
   } | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [savingImage, setSavingImage] = useState(false);
@@ -136,7 +136,7 @@ export default function StylesPage() {
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
-      setGeneratedPreviews(data.sampleImageUrls);
+      setGeneratedPreviews(data.sampleImageIds);
       toast.success("Preview images generated!");
     } catch {
       toast.error("Failed to generate preview images");
@@ -156,7 +156,7 @@ export default function StylesPage() {
           name: textName,
           description: textDescription || null,
           promptText: textPrompt,
-          sampleImageUrls: generatedPreviews,
+          sampleImageIds: generatedPreviews,
         }),
       });
       if (!res.ok) throw new Error();
@@ -213,8 +213,8 @@ export default function StylesPage() {
           name: imageName,
           description: imageDescription || null,
           promptText: imageAnalysisResult.promptText,
-          referenceImageUrl: imageAnalysisResult.referenceImageUrl,
-          sampleImageUrls: imageAnalysisResult.sampleImageUrls,
+          referenceImageId: imageAnalysisResult.referenceImageId,
+          sampleImageIds: imageAnalysisResult.sampleImageIds,
         }),
       });
       if (!res.ok) throw new Error();
@@ -294,8 +294,8 @@ export default function StylesPage() {
                 )}
                 {generatedPreviews.length > 0 && (
                   <div className="grid grid-cols-2 gap-2">
-                    {generatedPreviews.map((url, i) => (
-                      <img key={i} src={url} alt={`Preview ${i + 1}`} className="aspect-square w-full object-cover rounded-lg" />
+                    {generatedPreviews.map((id, i) => (
+                      <img key={i} src={`/api/images/${id}`} alt={`Preview ${i + 1}`} className="aspect-square w-full object-cover rounded-lg" />
                     ))}
                   </div>
                 )}
@@ -339,8 +339,8 @@ export default function StylesPage() {
                       <p className="text-sm">{imageAnalysisResult.promptText}</p>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
-                      {imageAnalysisResult.sampleImageUrls.map((url, i) => (
-                        <img key={i} src={url} alt={`Sample ${i + 1}`} className="aspect-square w-full object-cover rounded-lg" />
+                      {imageAnalysisResult.sampleImageIds.map((id, i) => (
+                        <img key={i} src={`/api/images/${id}`} alt={`Sample ${i + 1}`} className="aspect-square w-full object-cover rounded-lg" />
                       ))}
                     </div>
                   </div>
@@ -377,10 +377,10 @@ export default function StylesPage() {
                 {style.description && <CardDescription>{style.description}</CardDescription>}
               </CardHeader>
               <CardContent className="space-y-3">
-                {style.sampleImageUrls.length > 0 ? (
+                {style.sampleImageIds.length > 0 ? (
                   <div className="grid grid-cols-2 gap-2">
-                    {style.sampleImageUrls.map((url, i) => (
-                      <img key={i} src={url} alt={`${style.name} sample ${i + 1}`} className="aspect-square w-full object-cover rounded-lg" />
+                    {style.sampleImageIds.map((id, i) => (
+                      <img key={i} src={`/api/images/${id}`} alt={`${style.name} sample ${i + 1}`} className="aspect-square w-full object-cover rounded-lg" />
                     ))}
                   </div>
                 ) : (

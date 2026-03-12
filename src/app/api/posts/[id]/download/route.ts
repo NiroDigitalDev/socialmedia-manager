@@ -32,12 +32,9 @@ export async function GET(
         );
       }
 
-      const response = await fetch(image.cloudinaryUrl);
-      const buffer = await response.arrayBuffer();
-
-      return new NextResponse(buffer, {
+      return new NextResponse(Buffer.from(image.data), {
         headers: {
-          "Content-Type": "image/png",
+          "Content-Type": image.mimeType,
           "Content-Disposition": `attachment; filename="post-${id}-slide-${slideNumber}.png"`,
         },
       });
@@ -45,12 +42,9 @@ export async function GET(
 
     // Download all as zip (for carousel or single)
     if (post.images.length === 1) {
-      const response = await fetch(post.images[0].cloudinaryUrl);
-      const buffer = await response.arrayBuffer();
-
-      return new NextResponse(buffer, {
+      return new NextResponse(Buffer.from(post.images[0].data), {
         headers: {
-          "Content-Type": "image/png",
+          "Content-Type": post.images[0].mimeType,
           "Content-Disposition": `attachment; filename="post-${id}.png"`,
         },
       });
@@ -59,13 +53,9 @@ export async function GET(
     // Multiple images - create zip
     const zip = new JSZip();
 
-    await Promise.all(
-      post.images.map(async (image) => {
-        const response = await fetch(image.cloudinaryUrl);
-        const buffer = await response.arrayBuffer();
-        zip.file(`slide-${image.slideNumber}.png`, buffer);
-      })
-    );
+    for (const image of post.images) {
+      zip.file(`slide-${image.slideNumber}.png`, Buffer.from(image.data));
+    }
 
     const zipArrayBuffer = await zip.generateAsync({ type: "arraybuffer" });
 

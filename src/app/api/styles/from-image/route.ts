@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import { geminiText, generateImage } from "@/lib/gemini";
-import { uploadImageBase64, uploadImageBuffer } from "@/lib/cloudinary";
 
 export async function POST(request: Request) {
   try {
@@ -14,17 +14,19 @@ export async function POST(request: Request) {
       );
     }
 
-    // Upload the reference image to Cloudinary
     const buffer = Buffer.from(await imageFile.arrayBuffer());
-    const referenceUpload = await uploadImageBuffer(
-      buffer,
-      "socialmedia-manager/styles"
-    );
-    const referenceImageUrl = referenceUpload.url;
+    const mimeType = imageFile.type || "image/jpeg";
+
+    // Store the reference image in DB
+    const refImage = await prisma.storedImage.create({
+      data: {
+        data: buffer,
+        mimeType,
+      },
+    });
 
     // Use Gemini vision to analyze the image and extract a style description
     const base64Image = buffer.toString("base64");
-    const mimeType = imageFile.type || "image/jpeg";
 
     const promptText = await geminiText.generateContent([
       {
@@ -46,17 +48,24 @@ export async function POST(request: Request) {
       generateImage(cleanedPrompt, "nano-banana-2", "1:1"),
     ]);
 
-    // Upload samples to Cloudinary
-    const uploadPromises = results.map((img) =>
-      uploadImageBase64(img.base64, img.mimeType, "socialmedia-manager/styles")
+    // Store samples in DB
+    const stored = await Promise.all(
+      results.map((img) =>
+        prisma.storedImage.create({
+          data: {
+            data: Buffer.from(img.base64, "base64"),
+            mimeType: img.mimeType,
+          },
+        })
+      )
     );
-    const uploadedImages = await Promise.all(uploadPromises);
-    const sampleImageUrls = uploadedImages.map((img) => img.url);
+
+    const sampleImageIds = stored.map((s) => s.id);
 
     return NextResponse.json({
       promptText: cleanedPrompt,
-      referenceImageUrl,
-      sampleImageUrls,
+      referenceImageId: refImage.id,
+      sampleImageIds,
     });
   } catch (error) {
     console.error("Error analyzing image style:", error);

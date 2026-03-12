@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { deleteImage } from "@/lib/cloudinary";
 
 export async function GET(
   request: Request,
@@ -42,35 +41,14 @@ export async function DELETE(
       return NextResponse.json({ error: "Style not found" }, { status: 404 });
     }
 
-    // Delete sample images from Cloudinary
-    for (const url of style.sampleImageUrls) {
-      try {
-        // Extract public ID from Cloudinary URL
-        const parts = url.split("/upload/");
-        if (parts[1]) {
-          const publicId = parts[1]
-            .replace(/^v\d+\//, "")
-            .replace(/\.[^/.]+$/, "");
-          await deleteImage(publicId);
-        }
-      } catch (err) {
-        console.error("Error deleting image from Cloudinary:", err);
-      }
-    }
+    // Delete stored images
+    const imageIds = [...style.sampleImageIds];
+    if (style.referenceImageId) imageIds.push(style.referenceImageId);
 
-    // Delete reference image from Cloudinary if present
-    if (style.referenceImageUrl) {
-      try {
-        const parts = style.referenceImageUrl.split("/upload/");
-        if (parts[1]) {
-          const publicId = parts[1]
-            .replace(/^v\d+\//, "")
-            .replace(/\.[^/.]+$/, "");
-          await deleteImage(publicId);
-        }
-      } catch (err) {
-        console.error("Error deleting reference image from Cloudinary:", err);
-      }
+    if (imageIds.length > 0) {
+      await prisma.storedImage.deleteMany({
+        where: { id: { in: imageIds } },
+      });
     }
 
     await prisma.style.delete({
