@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { geminiFlash } from "@/lib/gemini";
+import { geminiText } from "@/lib/gemini";
 
 export async function POST(request: NextRequest) {
   try {
@@ -47,8 +47,7 @@ ${sourceText}
 
 Return ONLY a valid JSON array of objects. No markdown, no explanation.`;
 
-    const result = await geminiFlash.generateContent(prompt);
-    const text = result.response.text();
+    const text = await geminiText.generateContent(prompt);
 
     // Parse the JSON response, stripping any markdown fencing
     const cleanedText = text

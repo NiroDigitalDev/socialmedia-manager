@@ -7,14 +7,6 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "res.cloudinary.com",
       },
-      {
-        protocol: "https",
-        hostname: "fal.media",
-      },
-      {
-        protocol: "https",
-        hostname: "**.fal.ai",
-      },
     ],
   },
 };

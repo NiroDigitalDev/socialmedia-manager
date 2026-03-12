@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { fal } from "@/lib/fal";
-import { geminiFlash } from "@/lib/gemini";
-import { uploadImage, uploadImageBuffer } from "@/lib/cloudinary";
+import { geminiText, generateImage } from "@/lib/gemini";
+import { uploadImageBase64, uploadImageBuffer } from "@/lib/cloudinary";
 
 export async function POST(request: Request) {
   try {
@@ -27,7 +26,7 @@ export async function POST(request: Request) {
     const base64Image = buffer.toString("base64");
     const mimeType = imageFile.type || "image/jpeg";
 
-    const geminiResult = await geminiFlash.generateContent([
+    const promptText = await geminiText.generateContent([
       {
         inlineData: {
           data: base64Image,
@@ -39,30 +38,23 @@ export async function POST(request: Request) {
       },
     ]);
 
-    const promptText =
-      geminiResult.response.text().trim() ||
-      "Modern design with clean composition";
+    const cleanedPrompt = promptText.trim() || "Modern design with clean composition";
 
-    // Generate 2 sample images using fal.ai with the extracted style prompt
-    const falResult = await fal.subscribe("fal-ai/nano-banana-2", {
-      input: {
-        prompt: promptText,
-        image_size: { width: 1024, height: 1024 },
-        num_images: 2,
-      },
-    });
-
-    const images = falResult.data.images as Array<{ url: string }>;
+    // Generate 2 sample images using Gemini with the extracted style prompt
+    const results = await Promise.all([
+      generateImage(cleanedPrompt, "nano-banana-2", "1:1"),
+      generateImage(cleanedPrompt, "nano-banana-2", "1:1"),
+    ]);
 
     // Upload samples to Cloudinary
-    const uploadPromises = images.map((img) =>
-      uploadImage(img.url, "socialmedia-manager/styles")
+    const uploadPromises = results.map((img) =>
+      uploadImageBase64(img.base64, img.mimeType, "socialmedia-manager/styles")
     );
     const uploadedImages = await Promise.all(uploadPromises);
     const sampleImageUrls = uploadedImages.map((img) => img.url);
 
     return NextResponse.json({
-      promptText,
+      promptText: cleanedPrompt,
       referenceImageUrl,
       sampleImageUrls,
     });

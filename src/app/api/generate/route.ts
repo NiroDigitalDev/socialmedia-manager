@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { fal, FAL_MODELS, ASPECT_RATIOS, type ModelKey, type AspectRatioKey } from "@/lib/fal";
-import { uploadImage } from "@/lib/cloudinary";
+import { generateImage, GEMINI_IMAGE_MODELS, ASPECT_RATIOS, type ModelKey, type AspectRatioKey } from "@/lib/gemini";
+import { uploadImageBase64 } from "@/lib/cloudinary";
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,6 +29,20 @@ export async function POST(request: NextRequest) {
     if (!prompt || !aspectRatio || !format || !model) {
       return NextResponse.json(
         { error: "Missing required fields" },
+        { status: 400 }
+      );
+    }
+
+    if (!(model in GEMINI_IMAGE_MODELS)) {
+      return NextResponse.json(
+        { error: "Invalid model" },
+        { status: 400 }
+      );
+    }
+
+    if (!(aspectRatio in ASPECT_RATIOS)) {
+      return NextResponse.json(
+        { error: "Invalid aspect ratio" },
         { status: 400 }
       );
     }
@@ -74,8 +88,6 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    const imageSize = ASPECT_RATIOS[aspectRatio];
-    const modelId = FAL_MODELS[model];
     const numSlides = format === "carousel" ? Math.min(slideCount, 10) : 1;
 
     // Generate images in parallel
@@ -85,22 +97,12 @@ export async function POST(request: NextRequest) {
         slidePrompt = `${fullPrompt}. This is slide ${slideNumber} of ${numSlides} in a carousel post. Make it visually consistent with other slides but with unique content for this slide.`;
       }
 
-      const result = await fal.subscribe(modelId, {
-        input: {
-          prompt: slidePrompt,
-          image_size: { width: imageSize.width, height: imageSize.height },
-          num_images: 1,
-        },
-      });
-
-      const images = (result.data as { images: { url: string }[] }).images;
-      if (!images || images.length === 0) {
-        throw new Error(`No image generated for slide ${slideNumber}`);
-      }
+      const result = await generateImage(slidePrompt, model, aspectRatio);
 
       // Upload to Cloudinary
-      const uploaded = await uploadImage(
-        images[0].url,
+      const uploaded = await uploadImageBase64(
+        result.base64,
+        result.mimeType,
         `socialmedia-manager/posts/${post.id}`
       );
 

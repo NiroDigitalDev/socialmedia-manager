@@ -37,6 +37,19 @@ export async function uploadImageBuffer(
   });
 }
 
+export async function uploadImageBase64(
+  base64Data: string,
+  mimeType: string,
+  folder: string = "socialmedia-manager"
+): Promise<{ url: string; publicId: string }> {
+  const dataUri = `data:${mimeType};base64,${base64Data}`;
+  const result = await cloudinary.uploader.upload(dataUri, { folder });
+  return {
+    url: result.secure_url,
+    publicId: result.public_id,
+  };
+}
+
 export async function deleteImage(publicId: string): Promise<void> {
   await cloudinary.uploader.destroy(publicId);
 }

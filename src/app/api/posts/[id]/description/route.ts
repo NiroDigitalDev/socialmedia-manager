@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { geminiFlash } from "@/lib/gemini";
+import { geminiText } from "@/lib/gemini";
 
 export async function POST(
   _request: NextRequest,
@@ -57,8 +57,7 @@ Requirements:
 - Do NOT include any markdown formatting
 - Return ONLY the caption text, nothing else`;
 
-    const result = await geminiFlash.generateContent(geminiPrompt);
-    const description = result.response.text().trim();
+    const description = (await geminiText.generateContent(geminiPrompt)).trim();
 
     // Save the description to the post
     const updated = await prisma.generatedPost.update({

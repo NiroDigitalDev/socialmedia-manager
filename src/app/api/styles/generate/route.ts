@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { fal } from "@/lib/fal";
-import { uploadImage } from "@/lib/cloudinary";
+import { generateImage } from "@/lib/gemini";
+import { uploadImageBase64 } from "@/lib/cloudinary";
 
 export async function POST(request: Request) {
   try {
@@ -14,27 +14,15 @@ export async function POST(request: Request) {
       );
     }
 
-    // Generate 2 sample images using fal.ai
-    const result = await fal.subscribe("fal-ai/nano-banana-2", {
-      input: {
-        prompt: promptText,
-        image_size: { width: 1024, height: 1024 },
-        num_images: 2,
-      },
-    });
-
-    const images = result.data.images as Array<{ url: string }>;
-
-    if (!images || images.length === 0) {
-      return NextResponse.json(
-        { error: "No images generated" },
-        { status: 500 }
-      );
-    }
+    // Generate 2 sample images using Gemini
+    const results = await Promise.all([
+      generateImage(promptText, "nano-banana-2", "1:1"),
+      generateImage(promptText, "nano-banana-2", "1:1"),
+    ]);
 
     // Upload generated images to Cloudinary
-    const uploadPromises = images.map((img) =>
-      uploadImage(img.url, "socialmedia-manager/styles")
+    const uploadPromises = results.map((img) =>
+      uploadImageBase64(img.base64, img.mimeType, "socialmedia-manager/styles")
     );
     const uploadedImages = await Promise.all(uploadPromises);
     const sampleImageUrls = uploadedImages.map((img) => img.url);
