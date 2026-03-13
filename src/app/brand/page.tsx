@@ -142,7 +142,7 @@ export default function BrandPage() {
   }
 
   return (
-    <div className="container mx-auto max-w-2xl py-10 px-4">
+    <div className="container mx-auto max-w-2xl py-10 px-4 page-enter">
       <div className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight">Brand Settings</h1>
         <p className="text-muted-foreground mt-1">
@@ -165,10 +165,10 @@ export default function BrandPage() {
                 <img
                   src={logoUrl}
                   alt="Brand logo"
-                  className="h-24 w-24 rounded-lg border object-contain"
+                  className="h-24 w-24 rounded-xl border object-contain"
                 />
               ) : (
-                <div className="flex h-24 w-24 items-center justify-center rounded-lg border border-dashed">
+                <div className="flex h-24 w-24 items-center justify-center rounded-xl border border-dashed">
                   <span className="text-xs text-muted-foreground">
                     No logo
                   </span>
@@ -267,7 +267,7 @@ export default function BrandPage() {
                 {colors.map((color, index) => (
                   <div
                     key={index}
-                    className="flex items-center gap-2 rounded-md border px-3 py-1.5"
+                    className="flex items-center gap-2 rounded-full border px-3 py-1.5"
                   >
                     <div
                       className="h-5 w-5 rounded-full border"

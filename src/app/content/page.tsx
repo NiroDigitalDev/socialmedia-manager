@@ -441,7 +441,7 @@ export default function ContentPage() {
         }),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Failed to generate ideas");
       }
       const ideas = await res.json();
@@ -538,7 +538,7 @@ export default function ContentPage() {
   if (viewingSource) {
     const uniqueTypes = Array.from(new Set(sourceIdeas.map((i) => i.contentType)));
     return (
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-4xl mx-auto space-y-6 page-enter">
         <div className="flex items-center gap-4">
           <Button
             variant="ghost"
@@ -635,7 +635,7 @@ export default function ContentPage() {
   // ─── Main View (tabs) ─────────────────────────────────────────────────
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6 page-enter">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Content Library</h1>
@@ -670,7 +670,7 @@ export default function ContentPage() {
                     Paste your content below. AI will generate social media ideas from it.
                   </DialogDescription>
                 </DialogHeader>
-                <div className="overflow-y-auto px-4 py-2">
+                <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
                   <div className="grid gap-4">
                     <div className="grid gap-2">
                       <Label htmlFor="title">Title</Label>
@@ -812,7 +812,7 @@ function GenerateDialog({
             Generate AI-powered content ideas from &ldquo;{sourceName}&rdquo;
           </DialogDescription>
         </DialogHeader>
-        <div className="overflow-y-auto px-4 py-2">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
           <div>
             <Label className="text-sm font-medium">
               Content Types{" "}

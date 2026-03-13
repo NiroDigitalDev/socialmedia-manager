@@ -36,16 +36,18 @@ model ContentSource {
 }
 
 model ContentIdea {
-  id          String        @id @default(cuid())
-  sourceId    String
-  source      ContentSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
-  ideaText    String
-  contentType String
-  format      String
-  slideCount  Int           @default(1)
-  isSaved     Boolean       @default(false)
-  createdAt   DateTime      @default(now())
-  posts       GeneratedPost[]
+  id           String        @id @default(cuid())
+  sourceId     String
+  source       ContentSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  ideaText     String
+  contentType  String
+  format       String
+  slideCount   Int           @default(1)
+  slidePrompts String[]
+  styleGuide   String?
+  isSaved      Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  posts        GeneratedPost[]
 }
 
 model BrandSettings {

@@ -149,7 +149,7 @@ export default function PostsPage() {
         <h1 className="text-2xl font-bold">Posts Gallery</h1>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="aspect-[4/5] rounded-lg" />
+            <Skeleton key={i} className="aspect-[4/5] rounded-xl" />
           ))}
         </div>
       </div>
@@ -157,7 +157,7 @@ export default function PostsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 page-enter">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Posts Gallery</h1>
         <span className="text-sm text-muted-foreground">
@@ -254,7 +254,7 @@ export default function PostsPage() {
                 </DialogTitle>
               </DialogHeader>
 
-              <div className="overflow-y-auto px-4 py-2 space-y-4">
+              <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-4">
                 {/* Image Viewer */}
                 <div className="relative">
                   {selectedPost.images.length > 0 && (
@@ -262,7 +262,7 @@ export default function PostsPage() {
                       <img
                         src={selectedPost.images[currentSlide] ? imgUrl(selectedPost.images[currentSlide].id) : ""}
                         alt={`Slide ${currentSlide + 1}`}
-                        className="w-full rounded-lg"
+                        className="w-full rounded-xl"
                       />
                       {selectedPost.images.length > 1 && (
                         <div className="flex items-center justify-center gap-3 mt-3">
@@ -309,7 +309,7 @@ export default function PostsPage() {
                       <button
                         key={img.id}
                         onClick={() => setCurrentSlide(idx)}
-                        className={`flex-shrink-0 rounded-md overflow-hidden border-2 transition-colors ${
+                        className={`flex-shrink-0 rounded-xl overflow-hidden border-2 transition-colors ${
                           currentSlide === idx
                             ? "border-primary"
                             : "border-transparent"
@@ -397,7 +397,7 @@ export default function PostsPage() {
                       </div>
                     </div>
                   ) : selectedPost.description ? (
-                    <div className="rounded-lg bg-muted p-3">
+                    <div className="rounded-xl bg-muted p-3">
                       <p className="text-sm whitespace-pre-wrap">
                         {selectedPost.description}
                       </p>

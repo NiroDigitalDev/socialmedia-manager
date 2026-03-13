@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import { GeistSans } from "geist/font/sans";
-import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Toaster } from "@/components/ui/sonner";
@@ -16,13 +14,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body
-        className={`${GeistSans.variable} ${GeistMono.variable} antialiased`}
-      >
+    <html lang="en" className="dark">
+      <body className="antialiased">
         <div className="flex h-screen">
           <Sidebar />
-          <main className="flex-1 overflow-auto p-6">
+          <main className="flex-1 overflow-auto px-4 pb-6 pt-[4.5rem] md:px-6 md:pt-6">
             {children}
           </main>
         </div>

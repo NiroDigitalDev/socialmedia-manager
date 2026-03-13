@@ -244,7 +244,7 @@ export default function StylesPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 page-enter">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Styles</h1>
@@ -288,14 +288,14 @@ export default function StylesPage() {
                 </Button>
                 {generating && (
                   <div className="grid grid-cols-2 gap-2">
-                    <Skeleton className="aspect-square w-full rounded-lg" />
-                    <Skeleton className="aspect-square w-full rounded-lg" />
+                    <Skeleton className="aspect-square w-full rounded-xl" />
+                    <Skeleton className="aspect-square w-full rounded-xl" />
                   </div>
                 )}
                 {generatedPreviews.length > 0 && (
                   <div className="grid grid-cols-2 gap-2">
                     {generatedPreviews.map((id, i) => (
-                      <img key={i} src={`/api/images/${id}`} alt={`Preview ${i + 1}`} className="aspect-square w-full object-cover rounded-lg" />
+                      <img key={i} src={`/api/images/${id}`} alt={`Preview ${i + 1}`} className="aspect-square w-full object-cover rounded-xl" />
                     ))}
                   </div>
                 )}
@@ -318,7 +318,7 @@ export default function StylesPage() {
                   <Input id="image-upload" type="file" accept="image/*" ref={fileInputRef} onChange={handleFileChange} />
                 </div>
                 {imagePreview && (
-                  <img src={imagePreview} alt="Reference preview" className="w-full aspect-video object-cover rounded-lg" />
+                  <img src={imagePreview} alt="Reference preview" className="w-full aspect-video object-cover rounded-xl" />
                 )}
                 <Button onClick={handleAnalyzeImage} disabled={analyzing || !imageFile} variant="secondary" className="w-full">
                   {analyzing ? "Analyzing & Generating..." : "Analyze & Generate"}
@@ -327,20 +327,20 @@ export default function StylesPage() {
                   <div className="space-y-3">
                     <Skeleton className="h-4 w-full" />
                     <div className="grid grid-cols-2 gap-2">
-                      <Skeleton className="aspect-square w-full rounded-lg" />
-                      <Skeleton className="aspect-square w-full rounded-lg" />
+                      <Skeleton className="aspect-square w-full rounded-xl" />
+                      <Skeleton className="aspect-square w-full rounded-xl" />
                     </div>
                   </div>
                 )}
                 {imageAnalysisResult && (
                   <div className="space-y-3">
-                    <div className="rounded-lg bg-muted p-3">
+                    <div className="rounded-xl bg-muted p-3">
                       <p className="text-xs font-medium text-muted-foreground mb-1">Detected Style</p>
                       <p className="text-sm">{imageAnalysisResult.promptText}</p>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       {imageAnalysisResult.sampleImageIds.map((id, i) => (
-                        <img key={i} src={`/api/images/${id}`} alt={`Sample ${i + 1}`} className="aspect-square w-full object-cover rounded-lg" />
+                        <img key={i} src={`/api/images/${id}`} alt={`Sample ${i + 1}`} className="aspect-square w-full object-cover rounded-xl" />
                       ))}
                     </div>
                   </div>
@@ -359,7 +359,7 @@ export default function StylesPage() {
           {Array.from({ length: 8 }).map((_, i) => (
             <Card key={i}>
               <CardHeader><Skeleton className="h-5 w-32" /></CardHeader>
-              <CardContent><Skeleton className="aspect-square w-full rounded-lg" /></CardContent>
+              <CardContent><Skeleton className="aspect-square w-full rounded-xl" /></CardContent>
             </Card>
           ))}
         </div>
@@ -380,11 +380,11 @@ export default function StylesPage() {
                 {style.sampleImageIds.length > 0 ? (
                   <div className="grid grid-cols-2 gap-2">
                     {style.sampleImageIds.map((id, i) => (
-                      <img key={i} src={`/api/images/${id}`} alt={`${style.name} sample ${i + 1}`} className="aspect-square w-full object-cover rounded-lg" />
+                      <img key={i} src={`/api/images/${id}`} alt={`${style.name} sample ${i + 1}`} className="aspect-square w-full object-cover rounded-xl" />
                     ))}
                   </div>
                 ) : (
-                  <div className={`flex aspect-square items-center justify-center rounded-lg bg-gradient-to-br ${getStyleGradient(style.name)}`}>
+                  <div className={`flex aspect-square items-center justify-center rounded-xl bg-gradient-to-br ${getStyleGradient(style.name)}`}>
                     <span className="text-3xl font-bold text-white/80">
                       {style.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}
                     </span>

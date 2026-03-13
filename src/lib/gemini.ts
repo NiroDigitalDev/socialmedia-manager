@@ -37,13 +37,27 @@ export type AspectRatioKey = keyof typeof ASPECT_RATIOS;
 export async function generateImage(
   prompt: string,
   modelKey: ModelKey,
-  aspectRatio: AspectRatioKey
+  aspectRatio: AspectRatioKey,
+  referenceImages?: { base64: string; mimeType: string }[]
 ): Promise<{ base64: string; mimeType: string }> {
   const modelId = GEMINI_IMAGE_MODELS[modelKey];
 
+  // Build contents: reference images first, then the text prompt
+  const contents: Array<{ text?: string; inlineData?: { data: string; mimeType: string } }> = [];
+
+  if (referenceImages && referenceImages.length > 0) {
+    for (const img of referenceImages) {
+      contents.push({
+        inlineData: { data: img.base64, mimeType: img.mimeType },
+      });
+    }
+  }
+
+  contents.push({ text: prompt });
+
   const response = await ai.models.generateContent({
     model: modelId,
-    contents: prompt,
+    contents,
     config: {
       responseModalities: ["IMAGE"],
       imageConfig: {

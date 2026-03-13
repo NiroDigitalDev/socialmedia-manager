@@ -61,8 +61,9 @@ function GeneratePage() {
   const [aspectRatio, setAspectRatio] = useState("4:5");
   const [format, setFormat] = useState<"static" | "carousel">("static");
   const [model, setModel] = useState("nano-banana-2");
-  const [includeLogo, setIncludeLogo] = useState(false);
+  const [includeLogo, setIncludeLogo] = useState(true);
   const [slideCount, setSlideCount] = useState(3);
+  const [variations, setVariations] = useState(1);
   const [styles, setStyles] = useState<Style[]>([]);
   const [generating, setGenerating] = useState(false);
   const [activeGenerations, setActiveGenerations] = useState<GeneratedPost[]>([]);
@@ -85,6 +86,9 @@ function GeneratePage() {
     fetchStyles();
   }, [fetchStyles]);
 
+  const [slidePrompts, setSlidePrompts] = useState<string[]>([]);
+  const [styleGuide, setStyleGuide] = useState<string | null>(null);
+
   // Load content idea if ideaId is provided
   useEffect(() => {
     if (ideaId) {
@@ -95,6 +99,8 @@ function GeneratePage() {
             setPrompt(idea.ideaText);
             setFormat(idea.format === "carousel" ? "carousel" : "static");
             if (idea.slideCount > 1) setSlideCount(idea.slideCount);
+            if (idea.slidePrompts?.length > 0) setSlidePrompts(idea.slidePrompts);
+            if (idea.styleGuide) setStyleGuide(idea.styleGuide);
           }
         })
         .catch(() => {});
@@ -121,14 +127,17 @@ function GeneratePage() {
           model,
           includeLogo,
           slideCount: format === "carousel" ? slideCount : 1,
+          variations,
+          ...(slidePrompts.length > 0 && { slidePrompts, styleGuide }),
         }),
       });
 
       if (!res.ok) throw new Error("Generation failed");
 
-      const post = await res.json();
-      setActiveGenerations((prev) => [post, ...prev]);
-      toast.success("Images generated successfully!");
+      const result = await res.json();
+      const posts = Array.isArray(result) ? result : [result];
+      setActiveGenerations((prev) => [...posts, ...prev]);
+      toast.success(`${posts.length} variation${posts.length > 1 ? "s" : ""} generated!`);
     } catch {
       toast.error("Failed to generate images");
     } finally {
@@ -137,7 +146,7 @@ function GeneratePage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 page-enter">
       <h1 className="text-2xl font-bold">Generate Post</h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -152,14 +161,14 @@ function GeneratePage() {
               {loadingStyles ? (
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
                   {Array.from({ length: 5 }).map((_, i) => (
-                    <Skeleton key={i} className="h-24 rounded-lg" />
+                    <Skeleton key={i} className="h-24 rounded-xl" />
                   ))}
                 </div>
               ) : (
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
                   <button
                     onClick={() => setSelectedStyleId(null)}
-                    className={`relative rounded-lg border-2 p-3 text-center text-sm transition-colors ${
+                    className={`relative rounded-xl border-2 p-3 text-center text-sm transition-colors ${
                       selectedStyleId === null
                         ? "border-primary bg-primary/5"
                         : "border-border hover:border-primary/50"
@@ -172,7 +181,7 @@ function GeneratePage() {
                     <button
                       key={style.id}
                       onClick={() => setSelectedStyleId(style.id)}
-                      className={`relative rounded-lg border-2 overflow-hidden transition-colors ${
+                      className={`relative rounded-xl border-2 overflow-hidden transition-colors ${
                         selectedStyleId === style.id
                           ? "border-primary"
                           : "border-border hover:border-primary/50"
@@ -214,6 +223,47 @@ function GeneratePage() {
               />
             </CardContent>
           </Card>
+
+          {/* Slide Prompts Editor (from content idea) */}
+          {slidePrompts.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">
+                  Slide Prompts ({slidePrompts.length})
+                </CardTitle>
+                {styleGuide && (
+                  <div className="mt-2">
+                    <Label className="text-xs font-medium text-muted-foreground">Style Guide</Label>
+                    <Textarea
+                      value={styleGuide}
+                      onChange={(e) => setStyleGuide(e.target.value)}
+                      rows={2}
+                      className="mt-1 text-xs resize-none"
+                    />
+                  </div>
+                )}
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {slidePrompts.map((sp, idx) => (
+                  <div key={idx}>
+                    <Label className="text-xs font-medium text-muted-foreground">
+                      Slide {idx + 1}
+                    </Label>
+                    <Textarea
+                      value={sp}
+                      onChange={(e) => {
+                        const updated = [...slidePrompts];
+                        updated[idx] = e.target.value;
+                        setSlidePrompts(updated);
+                      }}
+                      rows={3}
+                      className="mt-1 text-sm resize-none"
+                    />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Format & Settings */}
           <Card>
@@ -318,6 +368,30 @@ function GeneratePage() {
                   Include brand logo & details in generation
                 </Label>
               </div>
+
+              <Separator />
+
+              {/* Variations */}
+              <div>
+                <Label className="text-sm font-medium mb-3 block">
+                  Variations
+                </Label>
+                <div className="flex gap-3">
+                  {[1, 2, 3, 4, 6].map((v) => (
+                    <Button
+                      key={v}
+                      variant={variations === v ? "default" : "outline"}
+                      onClick={() => setVariations(v)}
+                      size="sm"
+                    >
+                      {v}x
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Generate multiple variations in parallel from the same prompt
+                </p>
+              </div>
             </CardContent>
           </Card>
 
@@ -352,6 +426,8 @@ function GeneratePage() {
                 </svg>
                 Generating...
               </>
+            ) : variations > 1 ? (
+              `Generate ${variations} Variations`
             ) : (
               "Generate"
             )}
@@ -389,7 +465,7 @@ function GeneratePage() {
                           key={img.id}
                           src={`/api/images/${img.id}?type=generated`}
                           alt={`Slide ${img.slideNumber}`}
-                          className="rounded-lg w-full object-cover"
+                          className="rounded-xl w-full object-cover"
                         />
                       ))}
                     </div>
