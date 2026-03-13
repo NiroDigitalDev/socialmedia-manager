@@ -670,25 +670,27 @@ export default function ContentPage() {
                     Paste your content below. AI will generate social media ideas from it.
                   </DialogDescription>
                 </DialogHeader>
-                <div className="grid gap-4 py-2">
-                  <div className="grid gap-2">
-                    <Label htmlFor="title">Title</Label>
-                    <Input
-                      id="title"
-                      placeholder="e.g., Blog Post: 10 Tips for..."
-                      value={newTitle}
-                      onChange={(e) => setNewTitle(e.target.value)}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="rawText">Content</Label>
-                    <Textarea
-                      id="rawText"
-                      placeholder="Paste your article, blog post, product description, or any content here..."
-                      className="min-h-[200px]"
-                      value={newRawText}
-                      onChange={(e) => setNewRawText(e.target.value)}
-                    />
+                <div className="overflow-y-auto px-4 py-2">
+                  <div className="grid gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="title">Title</Label>
+                      <Input
+                        id="title"
+                        placeholder="e.g., Blog Post: 10 Tips for..."
+                        value={newTitle}
+                        onChange={(e) => setNewTitle(e.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="rawText">Content</Label>
+                      <Textarea
+                        id="rawText"
+                        placeholder="Paste your article, blog post, product description, or any content here..."
+                        className="min-h-[200px]"
+                        value={newRawText}
+                        onChange={(e) => setNewRawText(e.target.value)}
+                      />
+                    </div>
                   </div>
                 </div>
                 <DialogFooter>
@@ -810,7 +812,7 @@ function GenerateDialog({
             Generate AI-powered content ideas from &ldquo;{sourceName}&rdquo;
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 py-2">
+        <div className="overflow-y-auto px-4 py-2">
           <div>
             <Label className="text-sm font-medium">
               Content Types{" "}

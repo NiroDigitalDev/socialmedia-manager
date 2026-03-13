@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -242,7 +243,7 @@ export default function PostsPage() {
         open={!!selectedPost}
         onOpenChange={(open) => !open && setSelectedPost(null)}
       >
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-auto">
+        <DialogContent className="sm:max-w-3xl">
           {selectedPost && (
             <>
               <DialogHeader>
@@ -253,175 +254,174 @@ export default function PostsPage() {
                 </DialogTitle>
               </DialogHeader>
 
-              {/* Image Viewer */}
-              <div className="relative">
-                {selectedPost.images.length > 0 && (
-                  <>
-                    <img
-                      src={selectedPost.images[currentSlide] ? imgUrl(selectedPost.images[currentSlide].id) : ""}
-                      alt={`Slide ${currentSlide + 1}`}
-                      className="w-full rounded-lg"
-                    />
-                    {selectedPost.images.length > 1 && (
-                      <div className="flex items-center justify-center gap-3 mt-3">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={currentSlide === 0}
-                          onClick={() =>
-                            setCurrentSlide((prev) => Math.max(0, prev - 1))
-                          }
-                        >
-                          Previous
-                        </Button>
-                        <span className="text-sm text-muted-foreground">
-                          {currentSlide + 1} / {selectedPost.images.length}
-                        </span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={
-                            currentSlide === selectedPost.images.length - 1
-                          }
-                          onClick={() =>
-                            setCurrentSlide((prev) =>
-                              Math.min(
-                                selectedPost.images.length - 1,
-                                prev + 1
-                              )
-                            )
-                          }
-                        >
-                          Next
-                        </Button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-
-              {/* Thumbnail strip for carousel */}
-              {selectedPost.images.length > 1 && (
-                <div className="flex gap-2 overflow-x-auto pb-2">
-                  {selectedPost.images.map((img, idx) => (
-                    <button
-                      key={img.id}
-                      onClick={() => setCurrentSlide(idx)}
-                      className={`flex-shrink-0 rounded-md overflow-hidden border-2 transition-colors ${
-                        currentSlide === idx
-                          ? "border-primary"
-                          : "border-transparent"
-                      }`}
-                    >
+              <div className="overflow-y-auto px-4 py-2 space-y-4">
+                {/* Image Viewer */}
+                <div className="relative">
+                  {selectedPost.images.length > 0 && (
+                    <>
                       <img
-                        src={imgUrl(img.id)}
-                        alt={`Slide ${idx + 1}`}
-                        className="w-16 h-20 object-cover"
+                        src={selectedPost.images[currentSlide] ? imgUrl(selectedPost.images[currentSlide].id) : ""}
+                        alt={`Slide ${currentSlide + 1}`}
+                        className="w-full rounded-lg"
                       />
-                    </button>
-                  ))}
+                      {selectedPost.images.length > 1 && (
+                        <div className="flex items-center justify-center gap-3 mt-3">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={currentSlide === 0}
+                            onClick={() =>
+                              setCurrentSlide((prev) => Math.max(0, prev - 1))
+                            }
+                          >
+                            Previous
+                          </Button>
+                          <span className="text-sm text-muted-foreground">
+                            {currentSlide + 1} / {selectedPost.images.length}
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              currentSlide === selectedPost.images.length - 1
+                            }
+                            onClick={() =>
+                              setCurrentSlide((prev) =>
+                                Math.min(
+                                  selectedPost.images.length - 1,
+                                  prev + 1
+                                )
+                              )
+                            }
+                          >
+                            Next
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
-              )}
 
-              {/* Info */}
-              <div className="space-y-2 text-sm">
-                {selectedPost.style && (
-                  <p>
-                    <span className="font-medium">Style:</span>{" "}
-                    {selectedPost.style.name}
-                  </p>
-                )}
-                <p>
-                  <span className="font-medium">Model:</span>{" "}
-                  {selectedPost.model}
-                </p>
-                <p className="text-muted-foreground">{selectedPost.prompt}</p>
-              </div>
-
-              <Separator />
-
-              {/* Description Section */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Caption / Description</span>
-                  <div className="flex gap-2">
-                    {selectedPost.description && !editingDesc && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setDescDraft(selectedPost.description || "");
-                          setEditingDesc(true);
-                        }}
+                {/* Thumbnail strip for carousel */}
+                {selectedPost.images.length > 1 && (
+                  <div className="flex gap-2 overflow-x-auto pb-2">
+                    {selectedPost.images.map((img, idx) => (
+                      <button
+                        key={img.id}
+                        onClick={() => setCurrentSlide(idx)}
+                        className={`flex-shrink-0 rounded-md overflow-hidden border-2 transition-colors ${
+                          currentSlide === idx
+                            ? "border-primary"
+                            : "border-transparent"
+                        }`}
                       >
-                        Edit
-                      </Button>
-                    )}
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={generatingDesc}
-                      onClick={() => handleGenerateDescription(selectedPost.id)}
-                    >
-                      {generatingDesc
-                        ? "Generating..."
-                        : selectedPost.description
-                          ? "Regenerate"
-                          : "Generate Description"}
-                    </Button>
+                        <img
+                          src={imgUrl(img.id)}
+                          alt={`Slide ${idx + 1}`}
+                          className="w-16 h-20 object-cover"
+                        />
+                      </button>
+                    ))}
                   </div>
+                )}
+
+                {/* Info */}
+                <div className="space-y-2 text-sm">
+                  {selectedPost.style && (
+                    <p>
+                      <span className="font-medium">Style:</span>{" "}
+                      {selectedPost.style.name}
+                    </p>
+                  )}
+                  <p>
+                    <span className="font-medium">Model:</span>{" "}
+                    {selectedPost.model}
+                  </p>
+                  <p className="text-muted-foreground">{selectedPost.prompt}</p>
                 </div>
-                {editingDesc ? (
-                  <div className="space-y-2">
-                    <Textarea
-                      value={descDraft}
-                      onChange={(e) => setDescDraft(e.target.value)}
-                      rows={5}
-                    />
-                    <div className="flex gap-2 justify-end">
+
+                <Separator />
+
+                {/* Description Section */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Caption / Description</span>
+                    <div className="flex gap-2">
+                      {selectedPost.description && !editingDesc && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setDescDraft(selectedPost.description || "");
+                            setEditingDesc(true);
+                          }}
+                        >
+                          Edit
+                        </Button>
+                      )}
                       <Button
-                        variant="ghost"
+                        variant="secondary"
                         size="sm"
-                        onClick={() => setEditingDesc(false)}
+                        disabled={generatingDesc}
+                        onClick={() => handleGenerateDescription(selectedPost.id)}
                       >
-                        Cancel
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => handleSaveDescription(selectedPost.id)}
-                      >
-                        Save
+                        {generatingDesc
+                          ? "Generating..."
+                          : selectedPost.description
+                            ? "Regenerate"
+                            : "Generate Description"}
                       </Button>
                     </div>
                   </div>
-                ) : selectedPost.description ? (
-                  <div className="rounded-lg bg-muted p-3">
-                    <p className="text-sm whitespace-pre-wrap">
-                      {selectedPost.description}
+                  {editingDesc ? (
+                    <div className="space-y-2">
+                      <Textarea
+                        value={descDraft}
+                        onChange={(e) => setDescDraft(e.target.value)}
+                        rows={5}
+                      />
+                      <div className="flex gap-2 justify-end">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setEditingDesc(false)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => handleSaveDescription(selectedPost.id)}
+                        >
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                  ) : selectedPost.description ? (
+                    <div className="rounded-lg bg-muted p-3">
+                      <p className="text-sm whitespace-pre-wrap">
+                        {selectedPost.description}
+                      </p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2"
+                        onClick={() => {
+                          navigator.clipboard.writeText(selectedPost.description!);
+                          toast.success("Copied to clipboard!");
+                        }}
+                      >
+                        Copy to Clipboard
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No description yet. Click &quot;Generate Description&quot; to create one using AI.
                     </p>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="mt-2"
-                      onClick={() => {
-                        navigator.clipboard.writeText(selectedPost.description!);
-                        toast.success("Copied to clipboard!");
-                      }}
-                    >
-                      Copy to Clipboard
-                    </Button>
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No description yet. Click &quot;Generate Description&quot; to create one using AI.
-                  </p>
-                )}
+                  )}
+                </div>
               </div>
 
-              <Separator />
-
-              {/* Actions */}
-              <div className="flex gap-3">
+              <DialogFooter>
                 <Button
                   onClick={() => handleDownload(selectedPost.id)}
                   className="flex-1"
@@ -450,7 +450,7 @@ export default function PostsPage() {
                 >
                   {deleting === selectedPost.id ? "Deleting..." : "Delete"}
                 </Button>
-              </div>
+              </DialogFooter>
             </>
           )}
         </DialogContent>

@@ -9,7 +9,7 @@ export const geminiText = {
   async generateContent(prompt: string | Array<{ text?: string; inlineData?: { data: string; mimeType: string } }>) {
     const contents = typeof prompt === "string" ? prompt : prompt;
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-05-20",
+      model: "gemini-2.5-flash",
       contents,
     });
     return response.text ?? "";
