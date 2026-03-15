@@ -43,8 +43,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(palette);
   } catch (error) {
     console.error("Create palette error:", error);
+    const message = error instanceof Error ? error.message : "Failed to create palette";
     return NextResponse.json(
-      { error: "Failed to create palette" },
+      { error: message },
       { status: 500 }
     );
   }

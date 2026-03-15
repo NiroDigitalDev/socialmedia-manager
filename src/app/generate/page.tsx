@@ -285,10 +285,10 @@ function GeneratePage() {
             </CardContent>
           </Card>
 
-          {/* Color Scheme */}
+          {/* Brand Colors */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Color Scheme</CardTitle>
+              <CardTitle className="text-lg">Brand Colors</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <Select value={colorSchemeId} onValueChange={(v) => { if (v) setColorSchemeId(v); }}>

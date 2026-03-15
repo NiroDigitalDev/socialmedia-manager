@@ -39,7 +39,6 @@ export default function BrandPage() {
   const [colors, setColors] = useState<string[]>([]);
   const [tagline, setTagline] = useState("");
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
-  const [newColor, setNewColor] = useState("#000000");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -146,19 +145,6 @@ export default function BrandPage() {
         fileInputRef.current.value = "";
       }
     }
-  }
-
-  function addColor() {
-    if (colors.includes(newColor)) {
-      toast.error("This color has already been added");
-      return;
-    }
-    setColors([...colors, newColor]);
-    setNewColor("#000000");
-  }
-
-  function removeColor(index: number) {
-    setColors(colors.filter((_, i) => i !== index));
   }
 
   async function handleSavePalette() {
@@ -301,74 +287,6 @@ export default function BrandPage() {
           </CardContent>
         </Card>
 
-        <Separator />
-
-        {/* Brand Colors */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Brand Colors</CardTitle>
-            <CardDescription>
-              Define your brand color palette using hex values.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-end gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="colorPicker">Pick a Color</Label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    id="colorPicker"
-                    value={newColor}
-                    onChange={(e) => setNewColor(e.target.value)}
-                    className="h-10 w-10 cursor-pointer rounded border p-0.5"
-                  />
-                  <Input
-                    value={newColor}
-                    onChange={(e) => setNewColor(e.target.value)}
-                    placeholder="#000000"
-                    className="w-32"
-                  />
-                </div>
-              </div>
-              <Button variant="outline" onClick={addColor}>
-                Add Color
-              </Button>
-            </div>
-
-            {colors.length > 0 && (
-              <div className="flex flex-wrap gap-2 pt-2">
-                {colors.map((color, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center gap-2 rounded-full border px-3 py-1.5"
-                  >
-                    <div
-                      className="h-5 w-5 rounded-full border"
-                      style={{ backgroundColor: color }}
-                    />
-                    <span className="text-sm font-mono">{color}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeColor(index)}
-                      className="ml-1 text-muted-foreground hover:text-destructive text-sm"
-                      aria-label={`Remove color ${color}`}
-                    >
-                      &times;
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {colors.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                No colors added yet. Use the picker above to add brand colors.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
         {/* Save Button */}
         <div className="flex justify-end">
           <Button onClick={handleSave} disabled={saving}>
@@ -378,12 +296,12 @@ export default function BrandPage() {
 
         <Separator />
 
-        {/* Color Palettes */}
+        {/* Brand Colors */}
         <Card>
           <CardHeader>
-            <CardTitle>Color Palettes</CardTitle>
+            <CardTitle>Brand Colors</CardTitle>
             <CardDescription>
-              Create named color palettes (accent + background) to quickly select in the Generate page.
+              Create named color themes with accent and background colors. Select them when generating posts.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -509,7 +427,7 @@ export default function BrandPage() {
 
             {palettes.length === 0 && (
               <p className="text-sm text-muted-foreground text-center py-2">
-                No palettes saved yet. Create one above to use in the Generate page.
+                No color themes saved yet. Create one above to use in the Generate page.
               </p>
             )}
           </CardContent>
