@@ -48,10 +48,63 @@ const STYLE_COLORS: Record<string, string> = {
   "Earthy Natural": "from-green-700 to-amber-500",
   "Gradient Modern": "from-indigo-500 to-pink-500",
   "Hand-Drawn Sketch": "from-stone-400 to-stone-200",
+  "3D Render": "from-sky-400 to-violet-500",
+  Watercolor: "from-rose-300 to-sky-300",
+  "Pop Art": "from-yellow-400 to-red-500",
+  Glassmorphism: "from-white/30 to-blue-200/30",
+  "Paper Cut": "from-orange-300 to-teal-400",
+  Isometric: "from-emerald-400 to-blue-500",
+  "Collage Scrapbook": "from-amber-400 to-pink-400",
+  "Typography Heavy": "from-zinc-800 to-zinc-400",
+  Brutalist: "from-neutral-900 to-neutral-400",
+  Vaporwave: "from-fuchsia-400 to-cyan-400",
+  Duotone: "from-indigo-600 to-rose-400",
+  "Flat Illustration": "from-sky-400 to-lime-400",
+  "Grunge Texture": "from-stone-700 to-stone-400",
+  "Art Deco": "from-yellow-500 to-stone-900",
+  Claymation: "from-orange-300 to-pink-300",
+  "Pixel Art": "from-green-500 to-blue-600",
+  "Magazine Editorial": "from-neutral-300 to-neutral-600",
+  Psychedelic: "from-violet-500 to-yellow-400",
+};
+
+const STYLE_PREVIEW_IMAGES: Record<string, string> = {
+  "Corporate Clean": "/style-previews/corporate-clean.png",
+  "Bold & Vibrant": "/style-previews/bold-vibrant.png",
+  Minimalist: "/style-previews/minimalist.png",
+  "Retro/Vintage": "/style-previews/retro-vintage.png",
+  "Neon/Cyberpunk": "/style-previews/neon-cyberpunk.png",
+  "Pastel Soft": "/style-previews/pastel-soft.png",
+  "Dark Luxury": "/style-previews/dark-luxury.png",
+  "Earthy Natural": "/style-previews/earthy-natural.png",
+  "Gradient Modern": "/style-previews/gradient-modern.png",
+  "Hand-Drawn Sketch": "/style-previews/hand-drawn-sketch.png",
+  "3D Render": "/style-previews/3d-render.png",
+  Watercolor: "/style-previews/watercolor.png",
+  "Pop Art": "/style-previews/pop-art.png",
+  Glassmorphism: "/style-previews/glassmorphism.png",
+  "Paper Cut": "/style-previews/paper-cut.png",
+  Isometric: "/style-previews/isometric.png",
+  "Collage Scrapbook": "/style-previews/collage-scrapbook.png",
+  "Typography Heavy": "/style-previews/typography-heavy.png",
+  Brutalist: "/style-previews/brutalist.png",
+  Vaporwave: "/style-previews/vaporwave.png",
+  Duotone: "/style-previews/duotone.png",
+  "Flat Illustration": "/style-previews/flat-illustration.png",
+  "Grunge Texture": "/style-previews/grunge-texture.png",
+  "Art Deco": "/style-previews/art-deco.png",
+  Claymation: "/style-previews/claymation.png",
+  "Pixel Art": "/style-previews/pixel-art.png",
+  "Magazine Editorial": "/style-previews/magazine-editorial.png",
+  Psychedelic: "/style-previews/psychedelic.png",
 };
 
 function getStyleGradient(name: string): string {
   return STYLE_COLORS[name] || "from-slate-500 to-slate-300";
+}
+
+function getStylePreviewImage(name: string): string | null {
+  return STYLE_PREVIEW_IMAGES[name] || null;
 }
 
 export default function StylesPage() {
@@ -59,6 +112,7 @@ export default function StylesPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [generatingSamples, setGeneratingSamples] = useState(false);
 
   const [textName, setTextName] = useState("");
   const [textPrompt, setTextPrompt] = useState("");
@@ -93,14 +147,34 @@ export default function StylesPage() {
     }
   }, []);
 
+  const generateMissingSamples = useCallback(async () => {
+    setGeneratingSamples(true);
+    try {
+      const res = await fetch("/api/styles/generate-samples", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.generated > 0) {
+          toast.success(`Generated ${data.generated} style preview${data.generated > 1 ? "s" : ""}`);
+          await fetchStyles();
+        }
+      }
+    } catch {
+      // Silent fail — not critical
+    } finally {
+      setGeneratingSamples(false);
+    }
+  }, [fetchStyles]);
+
   const seedStyles = useCallback(async () => {
     try {
       await fetch("/api/styles/seed", { method: "POST" });
       await fetchStyles();
+      // After seeding, generate sample images for styles without them
+      generateMissingSamples();
     } catch {
       toast.error("Failed to seed predefined styles");
     }
-  }, [fetchStyles]);
+  }, [fetchStyles, generateMissingSamples]);
 
   useEffect(() => {
     fetchStyles();
@@ -252,6 +326,17 @@ export default function StylesPage() {
             Manage visual styles for your social media posts
           </p>
         </div>
+        <div className="flex items-center gap-3">
+          {generatingSamples && (
+            <Badge variant="secondary" className="animate-pulse">
+              Generating previews...
+            </Badge>
+          )}
+          {!generatingSamples && styles.some((s) => s.isPredefined && s.sampleImageIds.length === 0) && (
+            <Button variant="outline" size="sm" onClick={generateMissingSamples}>
+              Generate Missing Previews
+            </Button>
+          )}
         <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetDialog(); }}>
           <DialogTrigger render={<Button />}>
             Create Style
@@ -352,6 +437,7 @@ export default function StylesPage() {
             </Tabs>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {loading ? (
@@ -383,6 +469,12 @@ export default function StylesPage() {
                       <img key={i} src={`/api/images/${id}`} alt={`${style.name} sample ${i + 1}`} className="aspect-square w-full object-cover rounded-xl" />
                     ))}
                   </div>
+                ) : getStylePreviewImage(style.name) ? (
+                  <img
+                    src={getStylePreviewImage(style.name)!}
+                    alt={`${style.name} preview`}
+                    className="aspect-square w-full object-cover rounded-xl"
+                  />
                 ) : (
                   <div className={`flex aspect-square items-center justify-center rounded-xl bg-gradient-to-br ${getStyleGradient(style.name)}`}>
                     <span className="text-3xl font-bold text-white/80">

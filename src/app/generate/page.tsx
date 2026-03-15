@@ -11,7 +11,47 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  SelectSeparator,
+} from "@/components/ui/select";
 import { toast } from "sonner";
+import { COLOR_SCHEME_PRESETS } from "@/lib/color-schemes";
+
+const STYLE_PREVIEW_IMAGES: Record<string, string> = {
+  "Corporate Clean": "/style-previews/corporate-clean.png",
+  "Bold & Vibrant": "/style-previews/bold-vibrant.png",
+  "Minimalist": "/style-previews/minimalist.png",
+  "Retro/Vintage": "/style-previews/retro-vintage.png",
+  "Neon/Cyberpunk": "/style-previews/neon-cyberpunk.png",
+  "Pastel Soft": "/style-previews/pastel-soft.png",
+  "Dark Luxury": "/style-previews/dark-luxury.png",
+  "Earthy Natural": "/style-previews/earthy-natural.png",
+  "Gradient Modern": "/style-previews/gradient-modern.png",
+  "Hand-Drawn Sketch": "/style-previews/hand-drawn-sketch.png",
+  "3D Render": "/style-previews/3d-render.png",
+  "Watercolor": "/style-previews/watercolor.png",
+  "Pop Art": "/style-previews/pop-art.png",
+  "Glassmorphism": "/style-previews/glassmorphism.png",
+  "Paper Cut": "/style-previews/paper-cut.png",
+  "Isometric": "/style-previews/isometric.png",
+  "Collage Scrapbook": "/style-previews/collage-scrapbook.png",
+  "Typography Heavy": "/style-previews/typography-heavy.png",
+  "Brutalist": "/style-previews/brutalist.png",
+  "Vaporwave": "/style-previews/vaporwave.png",
+  "Duotone": "/style-previews/duotone.png",
+  "Flat Illustration": "/style-previews/flat-illustration.png",
+  "Grunge Texture": "/style-previews/grunge-texture.png",
+  "Art Deco": "/style-previews/art-deco.png",
+  "Claymation": "/style-previews/claymation.png",
+  "Pixel Art": "/style-previews/pixel-art.png",
+  "Magazine Editorial": "/style-previews/magazine-editorial.png",
+  "Psychedelic": "/style-previews/psychedelic.png",
+};
 
 interface Style {
   id: string;
@@ -64,7 +104,13 @@ function GeneratePage() {
   const [includeLogo, setIncludeLogo] = useState(true);
   const [slideCount, setSlideCount] = useState(3);
   const [variations, setVariations] = useState(1);
+  const [colorSchemeId, setColorSchemeId] = useState<string>("brand-default");
+  const [customAccent, setCustomAccent] = useState("#2563EB");
+  const [customBg, setCustomBg] = useState("#0F172A");
   const [styles, setStyles] = useState<Style[]>([]);
+  const [brandPalettes, setBrandPalettes] = useState<
+    { id: string; name: string; accentColor: string; bgColor: string }[]
+  >([]);
   const [generating, setGenerating] = useState(false);
   const [activeGenerations, setActiveGenerations] = useState<GeneratedPost[]>([]);
   const [loadingStyles, setLoadingStyles] = useState(true);
@@ -82,9 +128,21 @@ function GeneratePage() {
     }
   }, []);
 
+  const fetchBrandPalettes = useCallback(async () => {
+    try {
+      const res = await fetch("/api/brand/palettes");
+      if (res.ok) {
+        setBrandPalettes(await res.json());
+      }
+    } catch {
+      // silent
+    }
+  }, []);
+
   useEffect(() => {
     fetchStyles();
-  }, [fetchStyles]);
+    fetchBrandPalettes();
+  }, [fetchStyles, fetchBrandPalettes]);
 
   const [slidePrompts, setSlidePrompts] = useState<string[]>([]);
   const [styleGuide, setStyleGuide] = useState<string | null>(null);
@@ -129,6 +187,19 @@ function GeneratePage() {
           slideCount: format === "carousel" ? slideCount : 1,
           variations,
           ...(slidePrompts.length > 0 && { slidePrompts, styleGuide }),
+          colorScheme: colorSchemeId === "brand-default"
+            ? undefined
+            : colorSchemeId === "custom"
+              ? { accent: customAccent, bg: customBg }
+              : colorSchemeId.startsWith("brand-palette:")
+                ? (() => {
+                    const bp = brandPalettes.find((p) => `brand-palette:${p.id}` === colorSchemeId);
+                    return bp ? { accent: bp.accentColor, bg: bp.bgColor } : undefined;
+                  })()
+                : (() => {
+                    const preset = COLOR_SCHEME_PRESETS.find((p) => p.id === colorSchemeId);
+                    return preset ? { accent: preset.accent, bg: preset.bg } : undefined;
+                  })(),
         }),
       });
 
@@ -193,6 +264,12 @@ function GeneratePage() {
                           alt={style.name}
                           className="w-full h-16 object-cover"
                         />
+                      ) : STYLE_PREVIEW_IMAGES[style.name] ? (
+                        <img
+                          src={STYLE_PREVIEW_IMAGES[style.name]}
+                          alt={style.name}
+                          className="w-full h-16 object-cover"
+                        />
                       ) : (
                         <div className="w-full h-16 bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
                           <span className="text-xs text-muted-foreground">
@@ -205,6 +282,128 @@ function GeneratePage() {
                   ))}
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Color Scheme */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Color Scheme</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Select value={colorSchemeId} onValueChange={(v) => { if (v) setColorSchemeId(v); }}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="brand-default">
+                    <span className="flex items-center gap-2">
+                      Brand Default
+                    </span>
+                  </SelectItem>
+                  {brandPalettes.length > 0 && (
+                    <SelectSeparator />
+                  )}
+                  {brandPalettes.map((palette) => (
+                    <SelectItem key={`bp-${palette.id}`} value={`brand-palette:${palette.id}`}>
+                      <span className="flex items-center gap-2">
+                        <span
+                          className="inline-block h-3 w-3 rounded-full border border-white/20 shrink-0"
+                          style={{ backgroundColor: palette.accentColor }}
+                        />
+                        <span
+                          className="inline-block h-3 w-3 rounded-full border border-white/20 shrink-0"
+                          style={{ backgroundColor: palette.bgColor }}
+                        />
+                        {palette.name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                  <SelectSeparator />
+                  {COLOR_SCHEME_PRESETS.map((scheme) => (
+                    <SelectItem key={scheme.id} value={scheme.id}>
+                      <span className="flex items-center gap-2">
+                        <span
+                          className="inline-block h-3 w-3 rounded-full border border-white/20 shrink-0"
+                          style={{ backgroundColor: scheme.accent }}
+                        />
+                        <span
+                          className="inline-block h-3 w-3 rounded-full border border-white/20 shrink-0"
+                          style={{ backgroundColor: scheme.bg }}
+                        />
+                        {scheme.name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                  <SelectSeparator />
+                  <SelectItem value="custom">
+                    <span className="flex items-center gap-2">
+                      Custom Colors
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+
+              {colorSchemeId === "custom" && (
+                <div className="flex gap-4">
+                  <div className="flex-1 space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Accent</Label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={customAccent}
+                        onChange={(e) => setCustomAccent(e.target.value)}
+                        className="h-8 w-8 cursor-pointer rounded-full border border-border bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-full [&::-webkit-color-swatch]:border-none"
+                      />
+                      <span className="text-xs text-muted-foreground font-mono">{customAccent}</span>
+                    </div>
+                  </div>
+                  <div className="flex-1 space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Background</Label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={customBg}
+                        onChange={(e) => setCustomBg(e.target.value)}
+                        className="h-8 w-8 cursor-pointer rounded-full border border-border bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-full [&::-webkit-color-swatch]:border-none"
+                      />
+                      <span className="text-xs text-muted-foreground font-mono">{customBg}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Preview strip */}
+              {colorSchemeId !== "brand-default" && (() => {
+                let accent = "#2563EB";
+                let bg = "#0F172A";
+                if (colorSchemeId === "custom") {
+                  accent = customAccent;
+                  bg = customBg;
+                } else if (colorSchemeId.startsWith("brand-palette:")) {
+                  const bp = brandPalettes.find((p) => `brand-palette:${p.id}` === colorSchemeId);
+                  if (bp) { accent = bp.accentColor; bg = bp.bgColor; }
+                } else {
+                  const preset = COLOR_SCHEME_PRESETS.find((p) => p.id === colorSchemeId);
+                  if (preset) { accent = preset.accent; bg = preset.bg; }
+                }
+                return (
+                  <div
+                    className="rounded-xl p-4 flex items-center gap-3"
+                    style={{ backgroundColor: bg }}
+                  >
+                    <div
+                      className="rounded-full px-4 py-1.5 text-xs font-medium"
+                      style={{ backgroundColor: accent, color: bg }}
+                    >
+                      Accent
+                    </div>
+                    <span className="text-xs font-medium" style={{ color: accent }}>
+                      Preview Text
+                    </span>
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
 

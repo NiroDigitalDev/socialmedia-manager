@@ -19,6 +19,7 @@ export async function POST(request: NextRequest) {
       variations = 1,
       slidePrompts: bodySlidePrompts,
       styleGuide: bodyStyleGuide,
+      colorScheme,
     } = body as {
       prompt: string;
       styleId?: string;
@@ -31,6 +32,7 @@ export async function POST(request: NextRequest) {
       variations: number;
       slidePrompts?: string[];
       styleGuide?: string | null;
+      colorScheme?: { accent: string; bg: string };
     };
 
     const numVariations = Math.min(Math.max(variations, 1), 6);
@@ -80,12 +82,23 @@ export async function POST(request: NextRequest) {
     let logoReferenceImages: { base64: string; mimeType: string }[] = [];
 
     if (brand) {
-      // Brand colors are ALWAYS applied
       const brandParts = [
         brand.brandName && `Brand name: ${brand.brandName}`,
         brand.tagline && `Tagline: "${brand.tagline}"`,
-        brand.colors.length > 0 && `You MUST use these exact brand colors as the primary color palette for the design: ${brand.colors.join(", ")}. These colors should dominate the image — backgrounds, text, accents, and visual elements should all use these colors.`,
       ].filter(Boolean);
+
+      if (colorScheme) {
+        // User selected a specific color scheme (preset or custom)
+        brandParts.push(
+          `You MUST use these exact colors: Accent/Primary color: ${colorScheme.accent}, Background color: ${colorScheme.bg}. The accent color should be used for headlines, buttons, icons, and highlights. The background color should be the primary background of the design. These two colors must dominate the image.`
+        );
+      } else if (brand.colors.length > 0) {
+        // Fall back to DB brand colors
+        brandParts.push(
+          `You MUST use these exact brand colors as the primary color palette for the design: ${brand.colors.join(", ")}. These colors should dominate the image — backgrounds, text, accents, and visual elements should all use these colors.`
+        );
+      }
+
       brandColorContext = brandParts.join(". ");
 
       // Logo is only included if the checkbox is checked

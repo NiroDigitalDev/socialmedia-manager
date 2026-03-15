@@ -187,75 +187,98 @@ function IdeaCard({
   idea,
   onToggleSave,
   onDelete,
+  selectionMode,
+  isSelected,
+  onToggleSelect,
 }: {
   idea: ContentIdea;
   onToggleSave: (id: string, isSaved: boolean) => void;
   onDelete: (id: string) => void;
+  selectionMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }) {
   const router = useRouter();
 
   return (
-    <Card>
+    <Card
+      className={`transition-colors ${selectionMode ? "cursor-pointer" : ""} ${isSelected ? "border-primary/50 bg-primary/5" : ""}`}
+      onClick={selectionMode ? () => onToggleSelect?.(idea.id) : undefined}
+    >
       <CardContent className="pt-4">
-        <p className="text-sm leading-relaxed mb-3">{idea.ideaText}</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge
-            variant={
-              (contentTypeColors[idea.contentType] as "default" | "secondary" | "outline") ||
-              "default"
-            }
-          >
-            {formatContentType(idea.contentType)}
-          </Badge>
-          <Badge variant={idea.format === "carousel" ? "secondary" : "outline"}>
-            {idea.format === "carousel" ? (
-              <span className="flex items-center gap-1">
-                <Layers className="h-3 w-3" />
-                Carousel ({idea.slideCount})
-              </span>
-            ) : (
-              "Static"
-            )}
-          </Badge>
-          {idea.source && (
-            <span className="text-xs text-muted-foreground ml-auto">
-              From: {idea.source.title}
-            </span>
+        <div className="flex gap-3">
+          {selectionMode && (
+            <div className="pt-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+              <Checkbox
+                checked={isSelected}
+                onCheckedChange={() => onToggleSelect?.(idea.id)}
+              />
+            </div>
           )}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm leading-relaxed mb-3">{idea.ideaText}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge
+                variant={
+                  (contentTypeColors[idea.contentType] as "default" | "secondary" | "outline") ||
+                  "default"
+                }
+              >
+                {formatContentType(idea.contentType)}
+              </Badge>
+              <Badge variant={idea.format === "carousel" ? "secondary" : "outline"}>
+                {idea.format === "carousel" ? (
+                  <span className="flex items-center gap-1">
+                    <Layers className="h-3 w-3" />
+                    Carousel ({idea.slideCount})
+                  </span>
+                ) : (
+                  "Static"
+                )}
+              </Badge>
+              {idea.source && (
+                <span className="text-xs text-muted-foreground ml-auto">
+                  From: {idea.source.title}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       </CardContent>
-      <CardFooter className="gap-2 pt-0">
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => onToggleSave(idea.id, !idea.isSaved)}
-        >
-          {idea.isSaved ? (
-            <BookmarkCheck className="h-4 w-4 mr-1 text-primary" />
-          ) : (
-            <Bookmark className="h-4 w-4 mr-1" />
-          )}
-          {idea.isSaved ? "Saved" : "Save"}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() =>
-            router.push(`/generate?ideaId=${idea.id}`)
-          }
-        >
-          <ImagePlus className="h-4 w-4 mr-1" />
-          Generate Post
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="ml-auto"
-          onClick={() => onDelete(idea.id)}
-        >
-          <Trash2 className="h-4 w-4 text-muted-foreground" />
-        </Button>
-      </CardFooter>
+      {!selectionMode && (
+        <CardFooter className="gap-2 pt-0">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onToggleSave(idea.id, !idea.isSaved)}
+          >
+            {idea.isSaved ? (
+              <BookmarkCheck className="h-4 w-4 mr-1 text-primary" />
+            ) : (
+              <Bookmark className="h-4 w-4 mr-1" />
+            )}
+            {idea.isSaved ? "Saved" : "Save"}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              router.push(`/generate?ideaId=${idea.id}`)
+            }
+          >
+            <ImagePlus className="h-4 w-4 mr-1" />
+            Generate Post
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto"
+            onClick={() => onDelete(idea.id)}
+          >
+            <Trash2 className="h-4 w-4 text-muted-foreground" />
+          </Button>
+        </CardFooter>
+      )}
     </Card>
   );
 }
@@ -327,6 +350,11 @@ export default function ContentPage() {
   const [sourceIdeas, setSourceIdeas] = useState<ContentIdea[]>([]);
   const [sourceIdeasLoading, setSourceIdeasLoading] = useState(false);
   const [ideaTypeFilter, setIdeaTypeFilter] = useState<string>("all");
+
+  // Bulk selection
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // ─── Data Fetching ──────────────────────────────────────────────────────
 
@@ -526,6 +554,64 @@ export default function ContentPage() {
     );
   };
 
+  // ─── Bulk Selection ──────────────────────────────────────────────────
+
+  const toggleSelection = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = (ideas: ContentIdea[]) => {
+    setSelectedIds(new Set(ideas.map((i) => i.id)));
+  };
+
+  const deselectAll = () => {
+    setSelectedIds(new Set());
+  };
+
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkDeleting(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const res = await fetch("/api/content/ideas/bulk", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) throw new Error("Failed to bulk delete");
+      const { deletedCount } = await res.json();
+
+      setSourceIdeas((prev) => prev.filter((idea) => !selectedIds.has(idea.id)));
+      setSavedIdeas((prev) => prev.filter((idea) => !selectedIds.has(idea.id)));
+      if (viewingSource) {
+        setSources((prev) =>
+          prev.map((s) =>
+            s.id === viewingSource.id
+              ? { ...s, _count: { ideas: Math.max(0, s._count.ideas - deletedCount) } }
+              : s
+          )
+        );
+      }
+
+      exitSelectionMode();
+      toast.success(`Deleted ${deletedCount} idea${deletedCount > 1 ? "s" : ""}`);
+    } catch {
+      toast.error("Failed to delete selected ideas");
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   // ─── Filtered ideas ────────────────────────────────────────────────────
 
   const filteredSourceIdeas =
@@ -547,6 +633,7 @@ export default function ContentPage() {
               setViewingSource(null);
               setSourceIdeas([]);
               setIdeaTypeFilter("all");
+              exitSelectionMode();
             }}
           >
             <ArrowLeft className="h-4 w-4 mr-1" />
@@ -560,13 +647,43 @@ export default function ContentPage() {
               {sourceIdeas.length} idea{sourceIdeas.length !== 1 ? "s" : ""} generated
             </p>
           </div>
-          <Button
-            size="sm"
-            onClick={() => openGenerateDialog(viewingSource)}
-          >
-            <Sparkles className="h-4 w-4 mr-1" />
-            Generate More
-          </Button>
+          <div className="flex items-center gap-2">
+            {!selectionMode ? (
+              <>
+                <Button size="sm" variant="outline" onClick={() => setSelectionMode(true)}>
+                  Select
+                </Button>
+                <Button size="sm" onClick={() => openGenerateDialog(viewingSource)}>
+                  <Sparkles className="h-4 w-4 mr-1" />
+                  Generate More
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button size="sm" variant="outline" onClick={() => selectAll(filteredSourceIdeas)}>
+                  Select All
+                </Button>
+                <Button size="sm" variant="outline" onClick={deselectAll}>
+                  Deselect All
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={handleBulkDelete}
+                  disabled={selectedIds.size === 0 || bulkDeleting}
+                >
+                  {bulkDeleting ? (
+                    <><Loader2 className="h-4 w-4 mr-1 animate-spin" />Deleting...</>
+                  ) : (
+                    <><Trash2 className="h-4 w-4 mr-1" />Delete ({selectedIds.size})</>
+                  )}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={exitSelectionMode}>
+                  Cancel
+                </Button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Filter by content type */}
@@ -613,6 +730,9 @@ export default function ContentPage() {
                 idea={idea}
                 onToggleSave={handleToggleSave}
                 onDelete={handleDeleteIdea}
+                selectionMode={selectionMode}
+                isSelected={selectedIds.has(idea.id)}
+                onToggleSelect={toggleSelection}
               />
             ))}
           </div>
@@ -645,7 +765,7 @@ export default function ContentPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="sources">
+      <Tabs defaultValue="sources" onValueChange={() => exitSelectionMode()}>
         <TabsList>
           <TabsTrigger value="sources">Content Sources</TabsTrigger>
           <TabsTrigger value="saved">Saved Ideas</TabsTrigger>
@@ -739,6 +859,39 @@ export default function ContentPage() {
 
         {/* ─── Saved Ideas Tab ───────────────────────────────────────────── */}
         <TabsContent value="saved" className="mt-4 space-y-4">
+          {savedIdeas.length > 0 && (
+            <div className="flex items-center gap-2 justify-end">
+              {!selectionMode ? (
+                <Button size="sm" variant="outline" onClick={() => setSelectionMode(true)}>
+                  Select
+                </Button>
+              ) : (
+                <>
+                  <Button size="sm" variant="outline" onClick={() => selectAll(savedIdeas)}>
+                    Select All
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={deselectAll}>
+                    Deselect All
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={handleBulkDelete}
+                    disabled={selectedIds.size === 0 || bulkDeleting}
+                  >
+                    {bulkDeleting ? (
+                      <><Loader2 className="h-4 w-4 mr-1 animate-spin" />Deleting...</>
+                    ) : (
+                      <><Trash2 className="h-4 w-4 mr-1" />Delete ({selectedIds.size})</>
+                    )}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={exitSelectionMode}>
+                    Cancel
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
           {savedIdeasLoading ? (
             <div className="grid gap-4">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -763,6 +916,9 @@ export default function ContentPage() {
                   idea={idea}
                   onToggleSave={handleToggleSave}
                   onDelete={handleDeleteIdea}
+                  selectionMode={selectionMode}
+                  isSelected={selectedIds.has(idea.id)}
+                  onToggleSelect={toggleSelection}
                 />
               ))}
             </div>

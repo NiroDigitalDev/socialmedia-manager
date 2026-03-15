@@ -14,6 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { toast } from "sonner";
+import { Trash2, Plus, Loader2 } from "lucide-react";
 
 interface BrandSettings {
   id: string;
@@ -22,6 +23,14 @@ interface BrandSettings {
   tagline: string | null;
   logoUrl: string | null;
   updatedAt: string;
+  createdAt: string;
+}
+
+interface BrandPalette {
+  id: string;
+  name: string;
+  accentColor: string;
+  bgColor: string;
   createdAt: string;
 }
 
@@ -36,8 +45,16 @@ export default function BrandPage() {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Palettes
+  const [palettes, setPalettes] = useState<BrandPalette[]>([]);
+  const [paletteName, setPaletteName] = useState("");
+  const [paletteAccent, setPaletteAccent] = useState("#2563EB");
+  const [paletteBg, setPaletteBg] = useState("#0F172A");
+  const [savingPalette, setSavingPalette] = useState(false);
+
   useEffect(() => {
     fetchBrand();
+    fetchPalettes();
   }, []);
 
   async function fetchBrand() {
@@ -54,6 +71,17 @@ export default function BrandPage() {
       toast.error("Failed to load brand settings");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchPalettes() {
+    try {
+      const res = await fetch("/api/brand/palettes");
+      if (res.ok) {
+        setPalettes(await res.json());
+      }
+    } catch {
+      // silent
     }
   }
 
@@ -131,6 +159,52 @@ export default function BrandPage() {
 
   function removeColor(index: number) {
     setColors(colors.filter((_, i) => i !== index));
+  }
+
+  async function handleSavePalette() {
+    if (!paletteName.trim()) {
+      toast.error("Please enter a palette name");
+      return;
+    }
+
+    setSavingPalette(true);
+    try {
+      const res = await fetch("/api/brand/palettes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: paletteName,
+          accentColor: paletteAccent,
+          bgColor: paletteBg,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to save palette");
+
+      const palette = await res.json();
+      setPalettes((prev) => [palette, ...prev]);
+      setPaletteName("");
+      setPaletteAccent("#2563EB");
+      setPaletteBg("#0F172A");
+      toast.success("Color palette saved");
+    } catch {
+      toast.error("Failed to save color palette");
+    } finally {
+      setSavingPalette(false);
+    }
+  }
+
+  async function handleDeletePalette(id: string) {
+    try {
+      const res = await fetch(`/api/brand/palettes/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete");
+      setPalettes((prev) => prev.filter((p) => p.id !== id));
+      toast.success("Palette deleted");
+    } catch {
+      toast.error("Failed to delete palette");
+    }
   }
 
   if (loading) {
@@ -301,6 +375,145 @@ export default function BrandPage() {
             {saving ? "Saving..." : "Save Settings"}
           </Button>
         </div>
+
+        <Separator />
+
+        {/* Color Palettes */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Color Palettes</CardTitle>
+            <CardDescription>
+              Create named color palettes (accent + background) to quickly select in the Generate page.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Create new palette */}
+            <div className="space-y-4 rounded-xl border border-dashed p-4">
+              <div className="space-y-2">
+                <Label htmlFor="paletteName">Palette Name</Label>
+                <Input
+                  id="paletteName"
+                  value={paletteName}
+                  onChange={(e) => setPaletteName(e.target.value)}
+                  placeholder="e.g., Summer Campaign, Product Launch..."
+                />
+              </div>
+              <div className="flex gap-6">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Accent Color</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={paletteAccent}
+                      onChange={(e) => setPaletteAccent(e.target.value)}
+                      className="h-8 w-8 cursor-pointer rounded-full border border-border bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-full [&::-webkit-color-swatch]:border-none"
+                    />
+                    <span className="text-xs text-muted-foreground font-mono">{paletteAccent}</span>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Background Color</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={paletteBg}
+                      onChange={(e) => setPaletteBg(e.target.value)}
+                      className="h-8 w-8 cursor-pointer rounded-full border border-border bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-full [&::-webkit-color-swatch]:border-none"
+                    />
+                    <span className="text-xs text-muted-foreground font-mono">{paletteBg}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Preview */}
+              <div
+                className="rounded-xl p-4 flex items-center gap-3"
+                style={{ backgroundColor: paletteBg }}
+              >
+                <div
+                  className="rounded-full px-4 py-1.5 text-xs font-medium"
+                  style={{ backgroundColor: paletteAccent, color: paletteBg }}
+                >
+                  Accent
+                </div>
+                <span className="text-xs font-medium" style={{ color: paletteAccent }}>
+                  Preview Text
+                </span>
+              </div>
+
+              <Button
+                onClick={handleSavePalette}
+                disabled={savingPalette || !paletteName.trim()}
+                className="w-full"
+              >
+                {savingPalette ? (
+                  <><Loader2 className="h-4 w-4 mr-1 animate-spin" />Saving...</>
+                ) : (
+                  <><Plus className="h-4 w-4 mr-1" />Save Palette</>
+                )}
+              </Button>
+            </div>
+
+            {/* Saved palettes list */}
+            {palettes.length > 0 && (
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Saved Palettes</Label>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {palettes.map((palette) => (
+                    <div
+                      key={palette.id}
+                      className="rounded-xl border p-3 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium truncate">
+                          {palette.name}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => handleDeletePalette(palette.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        </Button>
+                      </div>
+                      <div
+                        className="rounded-lg p-3 flex items-center gap-2"
+                        style={{ backgroundColor: palette.bgColor }}
+                      >
+                        <div
+                          className="h-5 w-5 rounded-full border border-white/20 shrink-0"
+                          style={{ backgroundColor: palette.accentColor }}
+                        />
+                        <span
+                          className="text-xs font-mono"
+                          style={{ color: palette.accentColor }}
+                        >
+                          {palette.accentColor}
+                        </span>
+                        <div
+                          className="h-5 w-5 rounded-full border border-white/20 shrink-0 ml-auto"
+                          style={{ backgroundColor: palette.bgColor, borderColor: palette.accentColor + "40" }}
+                        />
+                        <span
+                          className="text-xs font-mono"
+                          style={{ color: palette.accentColor }}
+                        >
+                          {palette.bgColor}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {palettes.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-2">
+                No palettes saved yet. Create one above to use in the Generate page.
+              </p>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

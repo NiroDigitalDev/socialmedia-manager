@@ -60,6 +60,14 @@ model BrandSettings {
   createdAt   DateTime @default(now())
 }
 
+model BrandPalette {
+  id          String   @id @default(cuid())
+  name        String
+  accentColor String
+  bgColor     String
+  createdAt   DateTime @default(now())
+}
+
 model GeneratedPost {
   id            String         @id @default(cuid())
   styleId       String?
