@@ -1,12 +1,13 @@
-export default function ProjectGeneratePage() {
-  return (
-    <div className="flex flex-1 flex-col gap-4 py-4 md:py-6">
-      <div className="px-4 lg:px-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Project Generate</h1>
-        <p className="text-sm text-muted-foreground">
-          Generate content scoped to this project — coming soon.
-        </p>
-      </div>
-    </div>
-  );
+"use client";
+
+import { use } from "react";
+import { GenerateFlow } from "@/components/generate/generate-flow";
+
+export default function ProjectGeneratePage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = use(params);
+  return <GenerateFlow projectId={id} />;
 }

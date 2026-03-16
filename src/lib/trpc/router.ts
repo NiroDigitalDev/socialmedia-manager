@@ -7,6 +7,7 @@ import { brandIdentityRouter } from "./routers/brand-identity";
 import { contentRouter } from "./routers/content";
 import { favoriteRouter } from "./routers/favorite";
 import { assetRouter } from "./routers/asset";
+import { generationRouter } from "./routers/generation";
 
 export const appRouter = router({
   user: userRouter,
@@ -17,6 +18,7 @@ export const appRouter = router({
   content: contentRouter,
   favorite: favoriteRouter,
   asset: assetRouter,
+  generation: generationRouter,
 });
 
 export type AppRouter = typeof appRouter;
