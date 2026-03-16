@@ -51,6 +51,17 @@ const STYLE_PREVIEW_IMAGES: Record<string, string> = {
   "Pixel Art": "/style-previews/pixel-art.png",
   "Magazine Editorial": "/style-previews/magazine-editorial.png",
   "Psychedelic": "/style-previews/psychedelic.png",
+  "Risograph": "/style-previews/risograph.png",
+  "Bauhaus": "/style-previews/bauhaus.png",
+  "Stained Glass": "/style-previews/stained-glass.png",
+  "Noir Film": "/style-previews/noir-film.png",
+  "Origami": "/style-previews/origami.png",
+  "Memphis Design": "/style-previews/memphis-design.png",
+  "Blueprint": "/style-previews/blueprint.png",
+  "Chalkboard": "/style-previews/chalkboard.png",
+  "Low Poly": "/style-previews/low-poly.png",
+  "Embroidery": "/style-previews/embroidery.png",
+  "Synthwave": "/style-previews/synthwave.png",
 };
 
 interface Style {

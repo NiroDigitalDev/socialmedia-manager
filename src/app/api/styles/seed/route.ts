@@ -170,6 +170,72 @@ const PREDEFINED_STYLES = [
     promptText:
       "Psychedelic art style, swirling organic patterns, vivid rainbow colors, melting shapes, 1960s concert poster aesthetic, op-art optical illusions, fluid warped typography",
   },
+  {
+    name: "Risograph",
+    description: "Textured risograph print aesthetic",
+    promptText:
+      "Risograph print aesthetic, halftone dot patterns, misregistration color offset, limited ink palette, grainy textured paper, layered semi-transparent shapes, indie zine print feel",
+  },
+  {
+    name: "Bauhaus",
+    description: "Geometric Bauhaus design movement",
+    promptText:
+      "Bauhaus design style, primary colors red yellow blue on white, geometric circles triangles rectangles, asymmetric grid composition, sans-serif typography, modernist functional aesthetic",
+  },
+  {
+    name: "Stained Glass",
+    description: "Colorful stained glass window art",
+    promptText:
+      "Stained glass window art style, bold black lead outlines separating jewel-toned glass segments, translucent light effects, rich saturated colors, cathedral window mosaic composition",
+  },
+  {
+    name: "Noir Film",
+    description: "Cinematic film noir atmosphere",
+    promptText:
+      "Film noir style, high contrast black and white, dramatic shadows and light beams, venetian blind shadow patterns, smoky atmosphere, vintage cinema grain, detective story mood",
+  },
+  {
+    name: "Origami",
+    description: "Folded paper origami sculpture style",
+    promptText:
+      "Origami paper folding art style, geometric creased paper shapes, clean angular folds, soft shadows on white paper, Japanese paper craft aesthetic, precise mathematical forms",
+  },
+  {
+    name: "Memphis Design",
+    description: "80s Memphis Group bold patterns",
+    promptText:
+      "Memphis design movement, bold geometric shapes, squiggly lines, terrazzo patterns, bright clashing colors, asymmetric composition, 1980s Italian postmodern aesthetic, playful and irreverent",
+  },
+  {
+    name: "Blueprint",
+    description: "Technical blueprint and schematic style",
+    promptText:
+      "Technical blueprint style, white lines on deep blue background, engineering schematic aesthetic, grid paper, precise measurements and annotations, architectural drawing feel",
+  },
+  {
+    name: "Chalkboard",
+    description: "Hand-drawn chalkboard illustration",
+    promptText:
+      "Chalkboard art style, white and colored chalk on dark green/black board, hand-drawn lettering, chalk dust texture, café menu board aesthetic, sketchy organic illustrations",
+  },
+  {
+    name: "Low Poly",
+    description: "Geometric low-polygon 3D art",
+    promptText:
+      "Low polygon 3D art style, flat-shaded triangular facets, geometric crystalline forms, vibrant gradient colors across facets, modern digital art aesthetic, angular abstract shapes",
+  },
+  {
+    name: "Embroidery",
+    description: "Cross-stitch and embroidery textile art",
+    promptText:
+      "Embroidery textile art style, visible thread stitches and cross-stitch patterns, fabric texture background, floral motifs, handcraft needlework aesthetic, warm homemade feel",
+  },
+  {
+    name: "Synthwave",
+    description: "Retro 80s synthwave digital aesthetic",
+    promptText:
+      "Synthwave retro aesthetic, chrome text effects, sunset gradient sky pink to purple, wireframe mountains, retro sports car, laser grid floor, 1980s sci-fi movie poster feel, retrowave digital art",
+  },
 ];
 
 export async function POST() {

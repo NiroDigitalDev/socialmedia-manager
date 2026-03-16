@@ -66,6 +66,17 @@ const STYLE_COLORS: Record<string, string> = {
   "Pixel Art": "from-green-500 to-blue-600",
   "Magazine Editorial": "from-neutral-300 to-neutral-600",
   Psychedelic: "from-violet-500 to-yellow-400",
+  Risograph: "from-cyan-400 to-rose-500",
+  Bauhaus: "from-red-500 to-blue-600",
+  "Stained Glass": "from-emerald-500 to-purple-600",
+  "Noir Film": "from-neutral-900 to-neutral-500",
+  Origami: "from-white to-gray-200",
+  "Memphis Design": "from-pink-400 to-yellow-300",
+  Blueprint: "from-blue-900 to-blue-700",
+  Chalkboard: "from-green-900 to-green-700",
+  "Low Poly": "from-cyan-400 to-purple-500",
+  Embroidery: "from-rose-400 to-amber-300",
+  Synthwave: "from-fuchsia-500 to-purple-800",
 };
 
 const STYLE_PREVIEW_IMAGES: Record<string, string> = {
@@ -97,6 +108,17 @@ const STYLE_PREVIEW_IMAGES: Record<string, string> = {
   "Pixel Art": "/style-previews/pixel-art.png",
   "Magazine Editorial": "/style-previews/magazine-editorial.png",
   Psychedelic: "/style-previews/psychedelic.png",
+  Risograph: "/style-previews/risograph.png",
+  Bauhaus: "/style-previews/bauhaus.png",
+  "Stained Glass": "/style-previews/stained-glass.png",
+  "Noir Film": "/style-previews/noir-film.png",
+  Origami: "/style-previews/origami.png",
+  "Memphis Design": "/style-previews/memphis-design.png",
+  Blueprint: "/style-previews/blueprint.png",
+  Chalkboard: "/style-previews/chalkboard.png",
+  "Low Poly": "/style-previews/low-poly.png",
+  Embroidery: "/style-previews/embroidery.png",
+  Synthwave: "/style-previews/synthwave.png",
 };
 
 function getStyleGradient(name: string): string {
