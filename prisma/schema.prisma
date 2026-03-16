@@ -17,6 +17,115 @@ model StoredImage {
   createdAt DateTime @default(now())
 }
 
+enum Platform {
+  instagram
+  linkedin
+  reddit
+  x
+  blog
+  email
+}
+
+enum CampaignStatus {
+  draft
+  active
+  completed
+  archived
+}
+
+enum AssetCategory {
+  reference
+  asset
+}
+
+enum FavoriteTargetType {
+  project
+  campaign
+  route
+}
+
+model Project {
+  id          String          @id @default(cuid())
+  name        String
+  description String?
+  color       String?
+  orgId       String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  campaigns       Campaign[]
+  brandIdentities BrandIdentity[]
+  contentSources  ContentSource[]   @relation("ProjectContentSources")
+  contentIdeas    ContentIdea[]     @relation("ProjectContentIdeas")
+  posts           GeneratedPost[]   @relation("ProjectPosts")
+  assets          Asset[]
+
+  @@index([orgId])
+}
+
+model Campaign {
+  id              String         @id @default(cuid())
+  name            String
+  description     String?
+  projectId       String
+  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  brandIdentityId String?
+  brandIdentity   BrandIdentity? @relation(fields: [brandIdentityId], references: [id], onDelete: SetNull)
+  status          CampaignStatus @default(draft)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  contentIdeas ContentIdea[] @relation("CampaignContentIdeas")
+  posts        GeneratedPost[] @relation("CampaignPosts")
+
+  @@index([projectId])
+}
+
+model BrandIdentity {
+  id          String        @id @default(cuid())
+  name        String
+  tagline     String?
+  logoAssetId String?
+  projectId   String
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  orgId       String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  palettes  BrandPalette[] @relation("BrandIdentityPalettes")
+  campaigns Campaign[]
+
+  @@index([projectId])
+  @@index([orgId])
+}
+
+model Asset {
+  id        String        @id @default(cuid())
+  r2Key     String
+  mimeType  String
+  fileName  String
+  category  AssetCategory
+  projectId String?
+  project   Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  orgId     String
+  createdAt DateTime      @default(now())
+
+  @@index([orgId])
+  @@index([projectId])
+}
+
+model Favorite {
+  id         String             @id @default(cuid())
+  userId     String
+  targetType FavoriteTargetType
+  targetId   String
+  order      Int                @default(0)
+  createdAt  DateTime           @default(now())
+
+  @@unique([userId, targetType, targetId])
+  @@index([userId])
+}
+
 model Style {
   id               String          @id @default(cuid())
   name             String
@@ -25,16 +134,25 @@ model Style {
   referenceImageId String?
   sampleImageIds   String[]
   isPredefined     Boolean         @default(false)
+  orgId            String?
   createdAt        DateTime        @default(now())
   posts            GeneratedPost[]
+
+  @@index([orgId])
 }
 
 model ContentSource {
   id        String        @id @default(cuid())
   title     String
   rawText   String
+  orgId     String?
+  projectId String?
+  project   Project?      @relation("ProjectContentSources", fields: [projectId], references: [id], onDelete: SetNull)
   createdAt DateTime      @default(now())
   ideas     ContentIdea[]
+
+  @@index([orgId])
+  @@index([projectId])
 }
 
 model ContentIdea {
@@ -48,8 +166,17 @@ model ContentIdea {
   slidePrompts String[]
   styleGuide   String?
   isSaved      Boolean         @default(false)
+  orgId        String?
+  projectId    String?
+  project      Project?        @relation("ProjectContentIdeas", fields: [projectId], references: [id], onDelete: SetNull)
+  campaignId   String?
+  campaign     Campaign?       @relation("CampaignContentIdeas", fields: [campaignId], references: [id], onDelete: SetNull)
   createdAt    DateTime        @default(now())
   posts        GeneratedPost[]
+
+  @@index([orgId])
+  @@index([projectId])
+  @@index([campaignId])
 }
 
 model BrandSettings {
@@ -63,11 +190,15 @@ model BrandSettings {
 }
 
 model BrandPalette {
-  id          String   @id @default(cuid())
-  name        String
-  accentColor String
-  bgColor     String
-  createdAt   DateTime @default(now())
+  id              String         @id @default(cuid())
+  name            String
+  accentColor     String
+  bgColor         String
+  brandIdentityId String?
+  brandIdentity   BrandIdentity? @relation("BrandIdentityPalettes", fields: [brandIdentityId], references: [id], onDelete: Cascade)
+  createdAt       DateTime       @default(now())
+
+  @@index([brandIdentityId])
 }
 
 model GeneratedPost {
@@ -83,8 +214,19 @@ model GeneratedPost {
   includeLogo   Boolean          @default(false)
   status        String           @default("pending")
   description   String?
+  textContent   String?
+  platform      Platform?
+  orgId         String?
+  projectId     String?
+  project       Project?         @relation("ProjectPosts", fields: [projectId], references: [id], onDelete: SetNull)
+  campaignId    String?
+  campaign      Campaign?        @relation("CampaignPosts", fields: [campaignId], references: [id], onDelete: SetNull)
   createdAt     DateTime         @default(now())
   images        GeneratedImage[]
+
+  @@index([orgId])
+  @@index([projectId])
+  @@index([campaignId])
 }
 
 model GeneratedImage {
