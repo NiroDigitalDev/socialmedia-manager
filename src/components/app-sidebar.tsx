@@ -3,6 +3,7 @@
 import * as React from "react"
 
 import { authClient } from "@/lib/auth-client"
+import { CommandMenu } from "@/components/command-menu"
 import { NavDocuments } from "@/components/nav-documents"
 import { NavMain } from "@/components/nav-main"
 import { NavSecondary } from "@/components/nav-secondary"
@@ -17,6 +18,23 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import { LayoutDashboardIcon, ListIcon, ChartBarIcon, FolderIcon, UsersIcon, CameraIcon, FileTextIcon, Settings2Icon, CircleHelpIcon, SearchIcon, DatabaseIcon, FileChartColumnIcon, FileIcon, CommandIcon } from "lucide-react"
+
+function SearchButton() {
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        onClick={() => {
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))
+        }}
+        tooltip="Search (⌘K)"
+      >
+        <SearchIcon />
+        <span>Search</span>
+        <span className="ml-auto text-xs text-muted-foreground">⌘K</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  )
+}
 
 const data = {
   navMain: [
@@ -135,14 +153,6 @@ const data = {
         />
       ),
     },
-    {
-      title: "Search",
-      url: "#",
-      icon: (
-        <SearchIcon
-        />
-      ),
-    },
   ],
   documents: [
     {
@@ -203,10 +213,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavMain items={data.navMain} />
         <NavDocuments items={data.documents} />
         <NavSecondary items={data.navSecondary} className="mt-auto" />
+        <SidebarMenu className="px-2 pb-2">
+          <SearchButton />
+        </SidebarMenu>
       </SidebarContent>
       <SidebarFooter>
         <NavUser user={user} />
       </SidebarFooter>
+      <CommandMenu />
     </Sidebar>
   )
 }
