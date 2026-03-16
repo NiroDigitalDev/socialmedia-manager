@@ -6,7 +6,7 @@ import { Resend } from "resend";
 import { prisma } from "@/lib/prisma";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-const fromEmail = process.env.RESEND_FROM_EMAIL || "noreply@nirodigital.com";
+const fromEmail = "batice@nirodigital.com";
 
 export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET,
