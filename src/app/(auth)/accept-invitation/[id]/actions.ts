@@ -1,7 +1,6 @@
 "use server";
 
 import crypto from "crypto";
-import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -16,7 +15,6 @@ export async function getInvitationDetails(invitationId: string) {
       return { error: "Invitation not found or has already been accepted." };
     }
 
-    // Check expiry
     if (invitation.expiresAt && new Date(invitation.expiresAt) < new Date()) {
       return { error: "This invitation has expired. Please ask for a new one." };
     }
@@ -32,7 +30,7 @@ export async function getInvitationDetails(invitationId: string) {
   }
 }
 
-export async function acceptInvitationAndSendMagicLink(
+export async function acceptInvitationAndSendOTP(
   invitationId: string,
   name: string
 ) {
@@ -71,7 +69,7 @@ export async function acceptInvitationAndSendMagicLink(
           id: crypto.randomUUID(),
           userId: user.id,
           accountId: user.id,
-          providerId: "magic-link",
+          providerId: "email-otp",
           createdAt: new Date(),
         },
       });
@@ -99,18 +97,6 @@ export async function acceptInvitationAndSendMagicLink(
       where: { id: invitation.id },
       data: { status: "accepted" },
     });
-
-    // Send magic link so they can sign in
-    try {
-      await auth.api.signInMagicLink({
-        body: { email: invitation.email, callbackURL: "/dashboard" },
-        headers: await headers(),
-      });
-    } catch (emailError) {
-      console.error("Failed to send magic link:", emailError);
-      // Invitation was accepted but email failed — they can still login manually
-      return { success: true, email: invitation.email, emailFailed: true };
-    }
 
     return { success: true, email: invitation.email };
   } catch (e) {

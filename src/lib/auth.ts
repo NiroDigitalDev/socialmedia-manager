@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { magicLink } from "better-auth/plugins";
+import { emailOTP } from "better-auth/plugins";
 import { organization } from "better-auth/plugins";
 import { Resend } from "resend";
 import { prisma } from "@/lib/prisma";
@@ -15,16 +15,18 @@ export const auth = betterAuth({
     provider: "postgresql",
   }),
   plugins: [
-    magicLink({
-      disableSignUp: true,
-      sendMagicLink: async ({ email, url }) => {
+    emailOTP({
+      async sendVerificationOTP({ email, otp, type }) {
         await resend.emails.send({
           from: fromEmail,
           to: email,
-          subject: "Sign in to Social Media Manager",
-          html: `<p>Click <a href="${url}">here</a> to sign in to Social Media Manager.</p><p>This link expires in 5 minutes.</p>`,
+          subject: "Your sign-in code for Social Media Manager",
+          html: `<p>Your verification code is:</p><h1 style="font-size:32px;letter-spacing:8px;font-family:monospace">${otp}</h1><p>This code expires in 5 minutes.</p>`,
         });
       },
+      otpLength: 6,
+      expiresIn: 300,
+      disableSignUp: true,
     }),
     organization({
       async sendInvitationEmail(data) {

@@ -1,31 +1,32 @@
 "use client";
 
 import { useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { CommandIcon } from "lucide-react";
+import { CommandIcon, ArrowLeftIcon } from "lucide-react";
 
-type Status = "idle" | "sending" | "sent" | "error";
+type Status = "email" | "sending" | "otp" | "verifying" | "error";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<Status>("idle");
+  const [otp, setOtp] = useState("");
+  const [status, setStatus] = useState<Status>("email");
   const [errorMessage, setErrorMessage] = useState("");
-  const searchParams = useSearchParams();
-  const urlError = searchParams.get("error");
+  const router = useRouter();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSendOTP = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatus("sending");
     setErrorMessage("");
 
-    const { error } = await authClient.signIn.magicLink({
+    const { error } = await authClient.emailOtp.sendVerificationOtp({
       email,
-      callbackURL: "/dashboard",
+      type: "sign-in",
     });
 
     if (error) {
@@ -34,7 +35,32 @@ export default function LoginPage() {
         error.message || "No account found — you need an invitation to access this app."
       );
     } else {
-      setStatus("sent");
+      setStatus("otp");
+    }
+  };
+
+  const handleVerifyOTP = async (code: string) => {
+    setStatus("verifying");
+    setErrorMessage("");
+
+    const { error } = await authClient.signIn.emailOtp({
+      email,
+      otp: code,
+    });
+
+    if (error) {
+      setStatus("otp");
+      setErrorMessage(error.message || "Invalid or expired code. Please try again.");
+      setOtp("");
+    } else {
+      router.push("/dashboard");
+    }
+  };
+
+  const handleOtpChange = (value: string) => {
+    setOtp(value);
+    if (value.length === 6) {
+      handleVerifyOTP(value);
     }
   };
 
@@ -49,36 +75,69 @@ export default function LoginPage() {
         <CardHeader className="text-center">
           <CardTitle className="text-xl">Sign in</CardTitle>
           <CardDescription>
-            Enter your email to receive a magic link
+            {status === "otp" || status === "verifying"
+              ? `Enter the 6-digit code sent to ${email}`
+              : "Enter your email to receive a sign-in code"}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {urlError && (
-            <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              {urlError === "expired"
-                ? "Link expired — request a new one."
-                : "Invalid link — please try again."}
-            </div>
-          )}
-
-          {status === "sent" ? (
-            <div className="text-center space-y-2">
-              <p className="text-sm text-muted-foreground">
-                Check your email for a sign-in link.
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Sent to <strong>{email}</strong>
-              </p>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setStatus("idle")}
+          {status === "otp" || status === "verifying" ? (
+            <div className="flex flex-col items-center gap-4">
+              <InputOTP
+                maxLength={6}
+                value={otp}
+                onChange={handleOtpChange}
+                disabled={status === "verifying"}
               >
-                Use a different email
-              </Button>
+                <InputOTPGroup>
+                  <InputOTPSlot index={0} />
+                  <InputOTPSlot index={1} />
+                  <InputOTPSlot index={2} />
+                  <InputOTPSlot index={3} />
+                  <InputOTPSlot index={4} />
+                  <InputOTPSlot index={5} />
+                </InputOTPGroup>
+              </InputOTP>
+
+              {status === "verifying" && (
+                <p className="text-sm text-muted-foreground">Verifying...</p>
+              )}
+
+              {errorMessage && (
+                <p className="text-sm text-destructive">{errorMessage}</p>
+              )}
+
+              <div className="flex gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setStatus("email");
+                    setOtp("");
+                    setErrorMessage("");
+                  }}
+                >
+                  <ArrowLeftIcon className="size-4 mr-1" />
+                  Change email
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={async () => {
+                    setOtp("");
+                    setErrorMessage("");
+                    await authClient.emailOtp.sendVerificationOtp({
+                      email,
+                      type: "sign-in",
+                    });
+                  }}
+                >
+                  Resend code
+                </Button>
+              </div>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSendOTP} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
@@ -92,7 +151,7 @@ export default function LoginPage() {
                 />
               </div>
 
-              {status === "error" && (
+              {errorMessage && (
                 <p className="text-sm text-destructive">{errorMessage}</p>
               )}
 
@@ -101,7 +160,7 @@ export default function LoginPage() {
                 className="w-full"
                 disabled={status === "sending"}
               >
-                {status === "sending" ? "Sending..." : "Send magic link"}
+                {status === "sending" ? "Sending..." : "Continue"}
               </Button>
             </form>
           )}

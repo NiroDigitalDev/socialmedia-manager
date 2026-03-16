@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getInvitationDetails, acceptInvitationAndSendMagicLink } from "./actions";
+import { getInvitationDetails, acceptInvitationAndSendOTP } from "./actions";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CommandIcon } from "lucide-react";
 
-type Status = "loading" | "ready" | "processing" | "sent" | "error";
+type Status = "loading" | "ready" | "processing" | "done" | "error";
 
 export default function AcceptInvitationPage() {
   const { id } = useParams<{ id: string }>();
@@ -21,7 +21,6 @@ export default function AcceptInvitationPage() {
     organizationName: string;
   } | null>(null);
   const [name, setName] = useState("");
-  const [sentEmail, setSentEmail] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
@@ -43,14 +42,13 @@ export default function AcceptInvitationPage() {
     if (!invitation) return;
     setStatus("processing");
 
-    const result = await acceptInvitationAndSendMagicLink(invitation.id, name);
+    const result = await acceptInvitationAndSendOTP(invitation.id, name);
 
     if ("error" in result && result.error) {
       setStatus("error");
       setErrorMessage(result.error);
     } else {
-      setSentEmail(result.email || invitation.email);
-      setStatus("sent");
+      setStatus("done");
     }
   };
 
@@ -77,17 +75,20 @@ export default function AcceptInvitationPage() {
     );
   }
 
-  if (status === "sent") {
+  if (status === "done") {
     return (
       <div className="w-full max-w-md">
         <Card>
-          <CardContent className="pt-6 text-center space-y-2">
+          <CardContent className="pt-6 text-center space-y-4">
             <p className="text-sm text-muted-foreground">
-              Check your email to complete setup.
+              You&apos;ve joined <strong>{invitation?.organizationName}</strong>!
             </p>
             <p className="text-xs text-muted-foreground">
-              Sent to <strong>{sentEmail}</strong>
+              Sign in with your email to get started.
             </p>
+            <Button onClick={() => router.push("/login")}>
+              Go to login
+            </Button>
           </CardContent>
         </Card>
       </div>

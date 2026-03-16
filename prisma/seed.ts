@@ -33,7 +33,7 @@ async function main() {
 
   // 2. Create account record for magic link provider
   const existingAccount = await prisma.account.findFirst({
-    where: { userId: user.id, providerId: "magic-link" },
+    where: { userId: user.id, providerId: "email-otp" },
   });
   if (!existingAccount) {
     await prisma.account.create({
@@ -41,10 +41,10 @@ async function main() {
         id: genId(),
         userId: user.id,
         accountId: user.id,
-        providerId: "magic-link",
+        providerId: "email-otp",
       },
     });
-    console.log("Account created for magic-link provider");
+    console.log("Account created for email-otp provider");
   }
 
   // 3. Create organization
