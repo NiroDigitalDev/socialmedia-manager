@@ -199,14 +199,13 @@ export default function StylesPage() {
   }, [fetchStyles, generateMissingSamples]);
 
   useEffect(() => {
-    fetchStyles();
-  }, [fetchStyles]);
-
-  useEffect(() => {
-    if (!loading && styles.length === 0) {
-      seedStyles();
+    // Always call seed on mount — it only creates styles that don't exist yet
+    async function init() {
+      await fetch("/api/styles/seed", { method: "POST" });
+      await fetchStyles();
     }
-  }, [loading, styles.length, seedStyles]);
+    init();
+  }, [fetchStyles]);
 
   const resetDialog = () => {
     setTextName("");
