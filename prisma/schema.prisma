@@ -1,3 +1,4 @@
+
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -8,6 +9,7 @@ datasource db {
 }
 
 // Generic image storage for styles, brand logos, etc.
+
 model StoredImage {
   id        String   @id @default(cuid())
   data      Bytes
@@ -16,14 +18,14 @@ model StoredImage {
 }
 
 model Style {
-  id               String   @id @default(cuid())
+  id               String          @id @default(cuid())
   name             String
   description      String?
   promptText       String
   referenceImageId String?
   sampleImageIds   String[]
-  isPredefined     Boolean  @default(false)
-  createdAt        DateTime @default(now())
+  isPredefined     Boolean         @default(false)
+  createdAt        DateTime        @default(now())
   posts            GeneratedPost[]
 }
 
@@ -36,17 +38,17 @@ model ContentSource {
 }
 
 model ContentIdea {
-  id           String        @id @default(cuid())
+  id           String          @id @default(cuid())
   sourceId     String
-  source       ContentSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  source       ContentSource   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   ideaText     String
   contentType  String
   format       String
-  slideCount   Int           @default(1)
+  slideCount   Int             @default(1)
   slidePrompts String[]
   styleGuide   String?
-  isSaved      Boolean       @default(false)
-  createdAt    DateTime      @default(now())
+  isSaved      Boolean         @default(false)
+  createdAt    DateTime        @default(now())
   posts        GeneratedPost[]
 }
 
@@ -69,19 +71,19 @@ model BrandPalette {
 }
 
 model GeneratedPost {
-  id            String         @id @default(cuid())
+  id            String           @id @default(cuid())
   styleId       String?
-  style         Style?         @relation(fields: [styleId], references: [id])
+  style         Style?           @relation(fields: [styleId], references: [id])
   contentIdeaId String?
-  contentIdea   ContentIdea?   @relation(fields: [contentIdeaId], references: [id])
+  contentIdea   ContentIdea?     @relation(fields: [contentIdeaId], references: [id])
   prompt        String
   format        String
   aspectRatio   String
   model         String
-  includeLogo   Boolean        @default(false)
-  status        String         @default("pending")
+  includeLogo   Boolean          @default(false)
+  status        String           @default("pending")
   description   String?
-  createdAt     DateTime       @default(now())
+  createdAt     DateTime         @default(now())
   images        GeneratedImage[]
 }
 
@@ -93,4 +95,115 @@ model GeneratedImage {
   data        Bytes
   mimeType    String        @default("image/png")
   createdAt   DateTime      @default(now())
+}
+
+model User {
+  id            String       @id
+  name          String
+  email         String
+  emailVerified Boolean      @default(false)
+  image         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  members       Member[]
+  invitations   Invitation[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model Session {
+  id                   String   @id
+  expiresAt            DateTime
+  token                String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  ipAddress            String?
+  userAgent            String?
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeOrganizationId String?
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model Organization {
+  id          String       @id
+  name        String
+  slug        String
+  logo        String?
+  createdAt   DateTime
+  metadata    String?
+  members     Member[]
+  invitations Invitation[]
+
+  @@unique([slug])
+  @@map("organization")
+}
+
+model Member {
+  id             String       @id
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           String       @default("member")
+  createdAt      DateTime
+
+  @@index([organizationId])
+  @@index([userId])
+  @@map("member")
+}
+
+model Invitation {
+  id             String       @id
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String
+  role           String?
+  status         String       @default("pending")
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+  inviterId      String
+  user           User         @relation(fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("invitation")
 }
