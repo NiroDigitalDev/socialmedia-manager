@@ -14,17 +14,11 @@ import {
 } from "@/components/ui/command"
 import {
   LayoutDashboardIcon,
-  ListIcon,
-  ChartBarIcon,
-  FolderIcon,
-  UsersIcon,
+  SparklesIcon,
+  LibraryIcon,
+  FolderKanbanIcon,
   Settings2Icon,
-  CircleHelpIcon,
-  DatabaseIcon,
-  FileChartColumnIcon,
-  FileIcon,
   LogOutIcon,
-  UserIcon,
 } from "lucide-react"
 import { authClient } from "@/lib/auth-client"
 
@@ -65,52 +59,25 @@ export function CommandMenu() {
             <span>Dashboard</span>
             <CommandShortcut>⌘1</CommandShortcut>
           </CommandItem>
-          <CommandItem onSelect={() => navigate("#")}>
-            <ListIcon />
-            <span>Lifecycle</span>
+          <CommandItem onSelect={() => navigate("/dashboard/generate")}>
+            <SparklesIcon />
+            <span>Generate</span>
           </CommandItem>
-          <CommandItem onSelect={() => navigate("#")}>
-            <ChartBarIcon />
-            <span>Analytics</span>
+          <CommandItem onSelect={() => navigate("/dashboard/assets")}>
+            <LibraryIcon />
+            <span>Asset Library</span>
           </CommandItem>
-          <CommandItem onSelect={() => navigate("#")}>
-            <FolderIcon />
+          <CommandItem onSelect={() => navigate("/dashboard/projects")}>
+            <FolderKanbanIcon />
             <span>Projects</span>
-          </CommandItem>
-          <CommandItem onSelect={() => navigate("#")}>
-            <UsersIcon />
-            <span>Team</span>
-          </CommandItem>
-        </CommandGroup>
-        <CommandSeparator />
-        <CommandGroup heading="Documents">
-          <CommandItem onSelect={() => navigate("#")}>
-            <DatabaseIcon />
-            <span>Data Library</span>
-          </CommandItem>
-          <CommandItem onSelect={() => navigate("#")}>
-            <FileChartColumnIcon />
-            <span>Reports</span>
-          </CommandItem>
-          <CommandItem onSelect={() => navigate("#")}>
-            <FileIcon />
-            <span>Word Assistant</span>
           </CommandItem>
         </CommandGroup>
         <CommandSeparator />
         <CommandGroup heading="Account">
           <CommandItem onSelect={() => navigate("/dashboard/settings")}>
-            <UserIcon />
-            <span>Profile</span>
-          </CommandItem>
-          <CommandItem onSelect={() => navigate("/dashboard/settings")}>
             <Settings2Icon />
             <span>Settings</span>
             <CommandShortcut>⌘,</CommandShortcut>
-          </CommandItem>
-          <CommandItem onSelect={() => navigate("#")}>
-            <CircleHelpIcon />
-            <span>Get Help</span>
           </CommandItem>
           <CommandItem onSelect={handleLogout}>
             <LogOutIcon />
