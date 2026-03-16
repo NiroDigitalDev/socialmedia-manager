@@ -4,6 +4,7 @@ import { orgRouter } from "./routers/org";
 import { projectRouter } from "./routers/project";
 import { campaignRouter } from "./routers/campaign";
 import { brandIdentityRouter } from "./routers/brand-identity";
+import { contentRouter } from "./routers/content";
 import { favoriteRouter } from "./routers/favorite";
 
 export const appRouter = router({
@@ -12,6 +13,7 @@ export const appRouter = router({
   project: projectRouter,
   campaign: campaignRouter,
   brandIdentity: brandIdentityRouter,
+  content: contentRouter,
   favorite: favoriteRouter,
 });
 
