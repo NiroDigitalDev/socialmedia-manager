@@ -30,3 +30,38 @@ export const protectedProcedure = t.procedure.use(async (opts) => {
     },
   });
 });
+
+export const orgProtectedProcedure = t.procedure.use(async (opts) => {
+  if (!opts.ctx.session?.user) {
+    throw new TRPCError({ code: "UNAUTHORIZED" });
+  }
+
+  const orgId = opts.ctx.session.session.activeOrganizationId;
+  if (!orgId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "No active organization. Select an organization first.",
+    });
+  }
+
+  // Verify membership
+  const membership = await opts.ctx.prisma.member.findFirst({
+    where: {
+      userId: opts.ctx.session.user.id,
+      organizationId: orgId,
+    },
+  });
+
+  if (!membership) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Not a member of this organization" });
+  }
+
+  return opts.next({
+    ctx: {
+      ...opts.ctx,
+      session: opts.ctx.session,
+      orgId,
+      membership,
+    },
+  });
+});
