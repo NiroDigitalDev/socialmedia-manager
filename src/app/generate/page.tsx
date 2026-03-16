@@ -108,7 +108,7 @@ function GeneratePage() {
   const ideaId = searchParams.get("ideaId");
 
   const [prompt, setPrompt] = useState("");
-  const [selectedStyleId, setSelectedStyleId] = useState<string | null>(null);
+  const [selectedStyleIds, setSelectedStyleIds] = useState<Set<string>>(new Set());
   const [aspectRatio, setAspectRatio] = useState("4:5");
   const [format, setFormat] = useState<"static" | "carousel">("static");
   const [model, setModel] = useState("nano-banana-2");
@@ -176,6 +176,41 @@ function GeneratePage() {
     }
   }, [ideaId]);
 
+  const resolveColorScheme = () => {
+    if (colorSchemeId === "brand-default") return undefined;
+    if (colorSchemeId === "custom") return { accent: customAccent, bg: customBg };
+    if (colorSchemeId.startsWith("brand-palette:")) {
+      const bp = brandPalettes.find((p) => `brand-palette:${p.id}` === colorSchemeId);
+      return bp ? { accent: bp.accentColor, bg: bp.bgColor } : undefined;
+    }
+    const preset = COLOR_SCHEME_PRESETS.find((p) => p.id === colorSchemeId);
+    return preset ? { accent: preset.accent, bg: preset.bg } : undefined;
+  };
+
+  const generateForStyle = async (styleId: string | null) => {
+    const res = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt: prompt.trim(),
+        styleId,
+        contentIdeaId: ideaId,
+        aspectRatio,
+        format,
+        model,
+        includeLogo,
+        slideCount: format === "carousel" ? slideCount : 1,
+        variations,
+        ...(slidePrompts.length > 0 && { slidePrompts, styleGuide }),
+        colorScheme: resolveColorScheme(),
+      }),
+    });
+
+    if (!res.ok) throw new Error("Generation failed");
+    const result = await res.json();
+    return Array.isArray(result) ? result : [result];
+  };
+
   const handleGenerate = async () => {
     if (!prompt.trim()) {
       toast.error("Please enter a prompt");
@@ -184,42 +219,41 @@ function GeneratePage() {
 
     setGenerating(true);
     try {
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          styleId: selectedStyleId,
-          contentIdeaId: ideaId,
-          aspectRatio,
-          format,
-          model,
-          includeLogo,
-          slideCount: format === "carousel" ? slideCount : 1,
-          variations,
-          ...(slidePrompts.length > 0 && { slidePrompts, styleGuide }),
-          colorScheme: colorSchemeId === "brand-default"
-            ? undefined
-            : colorSchemeId === "custom"
-              ? { accent: customAccent, bg: customBg }
-              : colorSchemeId.startsWith("brand-palette:")
-                ? (() => {
-                    const bp = brandPalettes.find((p) => `brand-palette:${p.id}` === colorSchemeId);
-                    return bp ? { accent: bp.accentColor, bg: bp.bgColor } : undefined;
-                  })()
-                : (() => {
-                    const preset = COLOR_SCHEME_PRESETS.find((p) => p.id === colorSchemeId);
-                    return preset ? { accent: preset.accent, bg: preset.bg } : undefined;
-                  })(),
-        }),
-      });
+      // Determine which style IDs to generate for
+      const styleIdsToGenerate = selectedStyleIds.size > 0
+        ? Array.from(selectedStyleIds)
+        : [null]; // No style selected — generate once without a style
 
-      if (!res.ok) throw new Error("Generation failed");
+      // Fire all style generations in parallel
+      const results = await Promise.allSettled(
+        styleIdsToGenerate.map((styleId) => generateForStyle(styleId))
+      );
 
-      const result = await res.json();
-      const posts = Array.isArray(result) ? result : [result];
-      setActiveGenerations((prev) => [...posts, ...prev]);
-      toast.success(`${posts.length} variation${posts.length > 1 ? "s" : ""} generated!`);
+      const allPosts: GeneratedPost[] = [];
+      let failCount = 0;
+
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          allPosts.push(...result.value);
+        } else {
+          failCount++;
+        }
+      }
+
+      if (allPosts.length > 0) {
+        setActiveGenerations((prev) => [...allPosts, ...prev]);
+        const styleCount = styleIdsToGenerate.length;
+        const totalPosts = allPosts.length;
+        toast.success(
+          styleCount > 1
+            ? `Generated ${totalPosts} post${totalPosts > 1 ? "s" : ""} across ${styleCount} styles`
+            : `${totalPosts} variation${totalPosts > 1 ? "s" : ""} generated!`
+        );
+      }
+
+      if (failCount > 0) {
+        toast.error(`${failCount} style${failCount > 1 ? "s" : ""} failed to generate`);
+      }
     } catch {
       toast.error("Failed to generate images");
     } finally {
@@ -234,10 +268,29 @@ function GeneratePage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Controls */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Style Selector */}
+          {/* Style Selector (multi-select) */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Select Style</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg">Select Styles</CardTitle>
+                <div className="flex items-center gap-2">
+                  {selectedStyleIds.size > 0 && (
+                    <Badge variant="secondary">
+                      {selectedStyleIds.size} selected
+                    </Badge>
+                  )}
+                  {selectedStyleIds.size > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedStyleIds(new Set())}
+                      className="text-xs h-7 px-2"
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               {loadingStyles ? (
@@ -248,49 +301,55 @@ function GeneratePage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
-                  <button
-                    onClick={() => setSelectedStyleId(null)}
-                    className={`relative rounded-xl border-2 p-3 text-center text-sm transition-colors ${
-                      selectedStyleId === null
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:border-primary/50"
-                    }`}
-                  >
-                    <div className="text-2xl mb-1">-</div>
-                    <div className="text-xs text-muted-foreground">None</div>
-                  </button>
-                  {styles.map((style) => (
-                    <button
-                      key={style.id}
-                      onClick={() => setSelectedStyleId(style.id)}
-                      className={`relative rounded-xl border-2 overflow-hidden transition-colors ${
-                        selectedStyleId === style.id
-                          ? "border-primary"
-                          : "border-border hover:border-primary/50"
-                      }`}
-                    >
-                      {style.sampleImageIds.length > 0 ? (
-                        <img
-                          src={`/api/images/${style.sampleImageIds[0]}`}
-                          alt={style.name}
-                          className="w-full h-16 object-cover"
-                        />
-                      ) : STYLE_PREVIEW_IMAGES[style.name] ? (
-                        <img
-                          src={STYLE_PREVIEW_IMAGES[style.name]}
-                          alt={style.name}
-                          className="w-full h-16 object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-16 bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                          <span className="text-xs text-muted-foreground">
-                            {style.name.charAt(0)}
-                          </span>
-                        </div>
-                      )}
-                      <div className="p-1.5 text-xs truncate">{style.name}</div>
-                    </button>
-                  ))}
+                  {styles.map((style) => {
+                    const isSelected = selectedStyleIds.has(style.id);
+                    return (
+                      <button
+                        key={style.id}
+                        onClick={() => {
+                          setSelectedStyleIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(style.id)) next.delete(style.id);
+                            else next.add(style.id);
+                            return next;
+                          });
+                        }}
+                        className={`relative rounded-xl border-2 overflow-hidden transition-colors ${
+                          isSelected
+                            ? "border-primary ring-1 ring-primary"
+                            : "border-border hover:border-primary/50"
+                        }`}
+                      >
+                        {isSelected && (
+                          <div className="absolute top-1 right-1 z-10 h-5 w-5 rounded-full bg-primary flex items-center justify-center">
+                            <svg className="h-3 w-3 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          </div>
+                        )}
+                        {style.sampleImageIds.length > 0 ? (
+                          <img
+                            src={`/api/images/${style.sampleImageIds[0]}`}
+                            alt={style.name}
+                            className="w-full h-16 object-cover"
+                          />
+                        ) : STYLE_PREVIEW_IMAGES[style.name] ? (
+                          <img
+                            src={STYLE_PREVIEW_IMAGES[style.name]}
+                            alt={style.name}
+                            className="w-full h-16 object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-16 bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                            <span className="text-xs text-muted-foreground">
+                              {style.name.charAt(0)}
+                            </span>
+                          </div>
+                        )}
+                        <div className="p-1.5 text-xs truncate">{style.name}</div>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -636,11 +695,18 @@ function GeneratePage() {
                 </svg>
                 Generating...
               </>
-            ) : variations > 1 ? (
-              `Generate ${variations} Variations`
-            ) : (
-              "Generate"
-            )}
+            ) : (() => {
+              const styleCount = Math.max(selectedStyleIds.size, 1);
+              const totalPosts = styleCount * variations;
+              if (styleCount > 1 && variations > 1) {
+                return `Generate ${totalPosts} Posts (${styleCount} styles × ${variations} variations)`;
+              } else if (styleCount > 1) {
+                return `Generate ${styleCount} Styles`;
+              } else if (variations > 1) {
+                return `Generate ${variations} Variations`;
+              }
+              return "Generate";
+            })()}
           </Button>
         </div>
 
@@ -657,7 +723,7 @@ function GeneratePage() {
             activeGenerations.map((post) => (
               <Card key={post.id}>
                 <CardContent className="p-4">
-                  <div className="flex items-center gap-2 mb-3">
+                  <div className="flex flex-wrap items-center gap-2 mb-3">
                     <Badge
                       variant={
                         post.status === "completed" ? "default" : "secondary"
@@ -665,6 +731,9 @@ function GeneratePage() {
                     >
                       {post.status}
                     </Badge>
+                    {post.style && (
+                      <Badge variant="outline">{post.style.name}</Badge>
+                    )}
                     <Badge variant="outline">{post.format}</Badge>
                     <Badge variant="outline">{post.aspectRatio}</Badge>
                   </div>
