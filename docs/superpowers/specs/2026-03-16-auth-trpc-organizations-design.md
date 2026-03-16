@@ -50,7 +50,9 @@ Used for sending magic link emails and organization invitation emails. Single in
 - `src/lib/trpc/init.ts` — tRPC instance, context creation
 - `src/lib/trpc/routers/` — router files
 - `src/lib/trpc/router.ts` — merged app router
-- `src/app/api/trpc/[trpc]/route.ts` — Next.js App Router handler
+- `src/lib/trpc/client.ts` — tRPC client + React Query client
+- `src/app/providers.tsx` — `QueryClientProvider` + tRPC provider (client component)
+- `src/app/api/trpc/[trpc]/route.ts` — Next.js App Router handler (uses `fetchRequestHandler` from `@trpc/server/adapters/fetch`)
 
 **Context provides:**
 - `session` — from Better Auth (null if unauthenticated)
@@ -59,6 +61,10 @@ Used for sending magic link emails and organization invitation emails. Single in
 **Initial routers:**
 - `user` — get profile, update name
 - `org` — list members, list invitations, invite member, revoke invitation
+
+**Procedures:**
+- `publicProcedure` — no auth required
+- `protectedProcedure` — middleware that checks `ctx.session`, throws `UNAUTHORIZED` if null
 
 **Coexistence:** Existing REST routes under `/api/*` remain untouched. New features use tRPC. Gradual migration happens later when features move to the roks-workspace.
 
@@ -75,6 +81,8 @@ Used for sending magic link emails and organization invitation emails. Single in
 5. We send the email via Resend with the magic link URL
 6. User clicks link → Better Auth verifies token → creates session → redirects to `/dashboard`
 
+**Expired/invalid magic links:** Better Auth redirects to the callback URL with an error parameter. The login page handles `?error=expired` and `?error=invalid` query params, showing a clear message ("Link expired — request a new one") with a button to resend.
+
 ### Invite-Only Gate
 
 Magic link sign-in only succeeds if the user already exists in the `user` table. Unknown emails are rejected with a clear error message ("No account found — you need an invitation to access this app").
@@ -83,14 +91,22 @@ The `disableSignUp` option on the magic link plugin prevents auto-creation of ne
 
 ### Invitation Flow
 
+The organization plugin requires users to be authenticated before accepting an invitation. The flow is a two-phase process:
+
 1. Authenticated user navigates to Settings → Members
-2. Enters invitee email and role → calls `authClient.organization.inviteMember()`
+2. Enters invitee email → calls `authClient.organization.inviteMember({ email, role: "member" })`
 3. Better Auth creates an `invitation` record
 4. The `sendInvitationEmail` callback fires — we send the invite email via Resend
 5. Invitee clicks the invitation link → lands on `/accept-invitation/[id]`
-6. Accept-invitation page calls Better Auth to accept the invitation
-7. Better Auth creates the `user` record and `member` record
-8. Invitee is redirected to `/login` to sign in via magic link (they now exist in the user table)
+6. Accept-invitation page:
+   a. Reads the invitation details (email, org name) from Better Auth
+   b. Creates the user record via `auth.api.signUpEmail()` (server action — `disableSignUp` only applies to the magic link plugin, not programmatic creation)
+   c. Creates an `account` record linking the user to the magic-link provider
+   d. Sends the invitee a magic link to verify their identity
+   e. Shows a "Check your email to complete setup" message
+7. Invitee clicks the magic link → authenticates → session created
+8. Post-login hook checks for pending invitations matching the user's email and auto-accepts them via `auth.api.acceptInvitation()`
+9. User lands on `/dashboard` as an authenticated org member
 
 ---
 
@@ -99,6 +115,7 @@ The `disableSignUp` option on the magic link plugin prevents auto-creation of ne
 ```
 src/app/
 ├── layout.tsx                          # Root: <html>/<body>/Toaster
+├── providers.tsx                       # QueryClientProvider + tRPC provider
 ├── (auth)/
 │   ├── layout.tsx                      # Centered, minimal — no sidebar
 │   ├── login/
@@ -124,10 +141,16 @@ src/app/
 ### Route Protection
 
 **Middleware** (`src/middleware.ts`):
-- Checks for Better Auth session cookie on every request
+- Uses `getSessionCookie()` for fast cookie-existence check (runs in Edge runtime)
 - **Public paths** (no auth required): `/login`, `/accept-invitation/*`, `/api/auth/*`
-- **Protected paths** (redirect to `/login` if no session): everything else
+- **Protected paths** (redirect to `/login` if no session cookie): everything else
 - Both `(main)` and `(roks-workspace)` route groups are protected
+
+**Security model:** Middleware performs an optimistic redirect based on cookie existence only (does not validate the session against the database — that would require Node.js runtime). Authoritative session validation happens at two levels:
+1. **tRPC `protectedProcedure`** — validates session via `auth.api.getSession()` before executing any protected procedure
+2. **Page-level** — server components that need session data call `auth.api.getSession()` with request headers
+
+This two-layer approach gives fast redirects at the edge + full validation where it matters.
 
 ---
 
@@ -137,16 +160,17 @@ src/app/
 
 - Centered card layout, no sidebar, inspired by shadcn login-05
 - Single email input + "Send magic link" button
-- States: idle, sending, sent (success message: "Check your email"), error
+- States: idle, sending, sent (success message: "Check your email"), error, expired ("Link expired — request a new one")
 - App logo/name at top
 - No sign-up link (invite-only)
+- Handles `?error=expired` and `?error=invalid` query params from magic link callbacks
 
 ### `/accept-invitation/[id]` (auth route group)
 
-- Reads invitation ID from URL
-- Calls Better Auth to accept the invitation
-- On success: redirects to `/login` with a success toast
-- On error (expired, already accepted, invalid): shows error message
+- Reads invitation ID from URL, fetches invitation details
+- Shows org name and invitee email
+- "Accept & join" button triggers user creation + magic link send
+- States: loading, ready, processing, sent ("Check your email"), error (expired/invalid/already accepted)
 
 ### `/dashboard/settings` (roks-workspace)
 
@@ -155,6 +179,7 @@ Two sections:
 **Profile:**
 - Name field (editable) — calls `user.updateName` tRPC mutation
 - Email field (read-only)
+- Avatar fallback shows user's initials computed from `user.name`
 
 **Members & Invitations:**
 - Table of current org members (name, email, role, joined date)
@@ -168,6 +193,7 @@ Two sections:
 - Wire "Account" → navigates to `/dashboard/settings`
 - Wire "Log out" → calls Better Auth sign out → redirects to `/login`
 - Pass real user data (name, email) from session instead of hardcoded "shadcn"
+- `AvatarFallback` computes initials from `user.name` (e.g. "Rok" → "R", "Jane Doe" → "JD")
 
 ### `app-sidebar.tsx` changes
 
@@ -180,10 +206,11 @@ Two sections:
 
 A seed script (`prisma/seed.ts`) runs on first setup:
 
-1. Better Auth generates tables via `auth.api` or Prisma migration
+1. Better Auth generates tables via Prisma migration
 2. Create user: `dev@nirodigital.com`, name: "Rok"
-3. Create organization: "Niro Digital", slug: "niro-digital"
-4. Create member: Rok as "owner" of Niro Digital
+3. Create account record linking the user to the `magic-link` provider (required for magic link sign-in to work)
+4. Create organization: "Niro Digital", slug: "niro-digital"
+5. Create member: Rok as "owner" of Niro Digital
 
 This runs via `bun prisma/seed.ts` or as part of the Prisma seed config.
 
@@ -199,21 +226,23 @@ src/
 │   └── trpc/
 │       ├── init.ts                     # tRPC instance + context
 │       ├── router.ts                   # Merged app router
+│       ├── client.ts                   # tRPC client + React Query client
 │       └── routers/
 │           ├── user.ts                 # Profile queries/mutations
 │           └── org.ts                  # Members, invitations
-├── middleware.ts                        # Auth middleware
+├── middleware.ts                        # Auth middleware (Edge runtime)
 ├── app/
+│   ├── providers.tsx                   # QueryClientProvider + tRPC provider
 │   ├── (auth)/
 │   │   ├── layout.tsx
 │   │   ├── login/page.tsx
 │   │   └── accept-invitation/[id]/page.tsx
-│   └── (roks-workspace)/
-│       └── dashboard/
-│           └── settings/page.tsx
-└── api/
-    ├── auth/[...all]/route.ts
-    └── trpc/[trpc]/route.ts
+│   ├── (roks-workspace)/
+│   │   └── dashboard/
+│   │       └── settings/page.tsx
+│   └── api/
+│       ├── auth/[...all]/route.ts
+│       └── trpc/[trpc]/route.ts
 
 prisma/
 ├── schema.prisma                       # Updated with Better Auth tables
@@ -231,6 +260,7 @@ BETTER_AUTH_URL=http://localhost:3000  # Base URL (change for production)
 
 # Resend
 RESEND_API_KEY=             # From resend.com dashboard
+RESEND_FROM_EMAIL=noreply@nirodigital.com  # Sender address for magic links and invites
 ```
 
 Production values set in Railway environment variables.
@@ -240,15 +270,15 @@ Production values set in Railway environment variables.
 ## Dependencies
 
 ```
-better-auth          # Auth framework
-resend               # Email delivery
-@trpc/server         # tRPC server
-@trpc/client         # tRPC client
-@trpc/next           # tRPC Next.js adapter (if needed)
-@trpc/react-query    # tRPC React hooks
-@tanstack/react-query # Required by tRPC React
-superjson             # tRPC data transformer
+better-auth               # Auth framework
+resend                    # Email delivery
+@trpc/server              # tRPC server + fetch adapter
+@trpc/client              # tRPC client
+@trpc/tanstack-react-query # tRPC React Query integration
+@tanstack/react-query     # Required by tRPC React
 ```
+
+Note: `@trpc/next` is the Pages Router adapter and is NOT used with App Router. The App Router handler uses `fetchRequestHandler` from `@trpc/server/adapters/fetch`. `superjson` is not needed initially since all data types are JSON-serializable — add later if needed for Date/Map/Set serialization.
 
 ---
 
@@ -258,4 +288,3 @@ superjson             # tRPC data transformer
 - **Per-org data isolation:** When needed, add `organizationId` to relevant models and filter queries by active org.
 - **Role-based access:** The organization plugin supports owner/admin/member roles. Wire up permission checks when needed.
 - **REST → tRPC migration:** As features move to the roks-workspace, migrate their API calls to tRPC routers.
-- **Session-based tRPC context:** All tRPC procedures can check `ctx.session` for auth. Add `protectedProcedure` middleware that throws if not authenticated.
