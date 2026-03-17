@@ -10,7 +10,16 @@ import { ProjectCardSkeleton } from "@/components/skeletons";
 import { useProjects } from "@/hooks/use-projects";
 
 export default function DashboardPage() {
-  const { data: projects, isLoading } = useProjects();
+  const { data: projects, isLoading, isError } = useProjects();
+
+  if (isError) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+        <p className="text-sm text-muted-foreground">Failed to load data. Please try again.</p>
+        <Button variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="@container/main flex flex-1 flex-col gap-6 py-4 md:py-6">

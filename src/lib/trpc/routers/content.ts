@@ -52,6 +52,27 @@ export const contentRouter = router({
       });
     }),
 
+  updateSource: orgProtectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        title: z.string().min(1).max(200).optional(),
+        rawText: z.string().min(1).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      const source = await ctx.prisma.contentSource.findFirst({
+        where: { id, orgId: ctx.orgId },
+      });
+      if (!source)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Source not found",
+        });
+      return ctx.prisma.contentSource.update({ where: { id }, data });
+    }),
+
   deleteSource: orgProtectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {

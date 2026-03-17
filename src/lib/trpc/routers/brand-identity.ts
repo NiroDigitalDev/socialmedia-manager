@@ -171,6 +171,26 @@ export const brandIdentityRouter = router({
       });
     }),
 
+  updatePalette: orgProtectedProcedure
+    .input(
+      z.object({
+        paletteId: z.string(),
+        name: z.string().min(1).optional(),
+        accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+        bgColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { paletteId, ...data } = input;
+      const palette = await ctx.prisma.brandPalette.findFirst({
+        where: { id: paletteId, brandIdentity: { orgId: ctx.orgId } },
+      });
+      if (!palette) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Palette not found" });
+      }
+      return ctx.prisma.brandPalette.update({ where: { id: paletteId }, data });
+    }),
+
   removePalette: orgProtectedProcedure
     .input(z.object({ paletteId: z.string() }))
     .mutation(async ({ ctx, input }) => {

@@ -23,7 +23,7 @@ import { useProjects, useCreateProject } from "@/hooks/use-projects";
 import { toast } from "sonner";
 
 export default function ProjectsPage() {
-  const { data: projects, isLoading } = useProjects();
+  const { data: projects, isLoading, isError } = useProjects();
   const createProject = useCreateProject();
   const searchParams = useSearchParams();
 
@@ -126,7 +126,12 @@ export default function ProjectsPage() {
         </Dialog>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+          <p className="text-sm text-muted-foreground">Failed to load data. Please try again.</p>
+          <Button variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+        </div>
+      ) : isLoading ? (
         <div className="grid gap-4 px-4 lg:px-6 @xl/main:grid-cols-2 @4xl/main:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <ProjectCardSkeleton key={i} />

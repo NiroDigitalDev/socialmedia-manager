@@ -55,7 +55,7 @@ export default function CampaignDetailPage({
   params: Promise<{ id: string; campaignId: string }>;
 }) {
   const { id, campaignId } = use(params);
-  const { data: campaign, isLoading } = useCampaign(campaignId);
+  const { data: campaign, isLoading, isError } = useCampaign(campaignId);
   const updateCampaign = useUpdateCampaign();
   const { data: assignedIdeas = [] } = useIdeas({ projectId: id, campaignId });
   const { data: brands } = useBrandIdentities(id);
@@ -121,6 +121,15 @@ export default function CampaignDetailPage({
       setTimeout(() => setSelectedPost(null), 300);
     }
   };
+
+  if (isError) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+        <p className="text-sm text-muted-foreground">Failed to load data. Please try again.</p>
+        <Button variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

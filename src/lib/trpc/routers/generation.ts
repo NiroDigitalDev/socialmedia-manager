@@ -9,6 +9,7 @@ import {
   type ModelKey,
   type AspectRatioKey,
 } from "@/lib/gemini";
+import { fetchFromR2 } from "@/lib/r2";
 
 const modelKeySchema = z.enum(
   Object.keys(GEMINI_IMAGE_MODELS) as [ModelKey, ...ModelKey[]]
@@ -169,11 +170,20 @@ Example: [{ "platform": "instagram", "headline": "...", "sections": [...], "tone
             const logoAsset = await ctx.prisma.asset.findUnique({
               where: { id: brandIdentity.logoAssetId },
             });
-            // Note: Asset uses R2 — if needed, fetch from R2. For now, skip logo ref images
-            // for BrandIdentity (R2 migration in progress). The prompt still mentions logo.
             if (logoAsset) {
               logoContext =
-                "Include the brand logo prominently but tastefully in the design (e.g., corner, header, or watermark position).";
+                "The attached image is the brand logo. You MUST incorporate this exact logo into the generated image. Place it prominently but tastefully (e.g., corner, header, or watermark position).";
+              try {
+                const { data: logoData, contentType } = await fetchFromR2(logoAsset.r2Key);
+                logoReferenceImages.push({
+                  base64: logoData.toString("base64"),
+                  mimeType: contentType,
+                });
+              } catch {
+                // R2 fetch failed — fall back to prompt-only logo inclusion
+                logoContext =
+                  "Include the brand logo prominently but tastefully in the design (e.g., corner, header, or watermark position).";
+              }
             }
           }
         }

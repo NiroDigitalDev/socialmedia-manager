@@ -46,6 +46,43 @@ export function useCreateSource() {
   });
 }
 
+export function useUpdateSource() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const { mutationFn } = trpc.content.updateSource.mutationOptions();
+  return useMutation({
+    mutationFn,
+    onMutate: async (updatedSource) => {
+      await queryClient.cancelQueries({ queryKey: trpc.content.listSources.queryKey() });
+      const previousQueries: { queryKey: unknown; data: unknown }[] = [];
+      queryClient
+        .getQueriesData({ queryKey: trpc.content.listSources.queryKey() })
+        .forEach(([queryKey, data]) => {
+          previousQueries.push({ queryKey, data });
+        });
+
+      queryClient.setQueriesData(
+        { queryKey: trpc.content.listSources.queryKey() },
+        (old: any[] | undefined) =>
+          (old ?? []).map((s: any) =>
+            s.id === updatedSource.id ? { ...s, ...updatedSource } : s
+          )
+      );
+
+      return { previousQueries };
+    },
+    onError: (_err, _vars, context) => {
+      context?.previousQueries?.forEach(({ queryKey, data }) => {
+        queryClient.setQueryData(queryKey as any, data);
+      });
+      toast.error("Failed to update content source");
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: trpc.content.listSources.queryKey() });
+    },
+  });
+}
+
 export function useDeleteSource() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();

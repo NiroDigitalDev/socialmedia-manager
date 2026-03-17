@@ -26,9 +26,18 @@ export default function ProjectOverviewPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const { data: project, isLoading: projectLoading } = useProject(id);
+  const { data: project, isLoading: projectLoading, isError: projectError } = useProject(id);
   const { data: campaigns, isLoading: campaignsLoading } = useCampaigns(id);
   const { data: brandIdentities } = useBrandIdentities(id);
+
+  if (projectError) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+        <p className="text-sm text-muted-foreground">Failed to load data. Please try again.</p>
+        <Button variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
+  }
 
   if (projectLoading) {
     return (

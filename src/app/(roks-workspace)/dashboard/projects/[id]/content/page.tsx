@@ -355,6 +355,15 @@ function IdeasTab({ projectId }: { projectId: string }) {
     );
   };
 
+  if (isError) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+        <p className="text-sm text-muted-foreground">Failed to load data. Please try again.</p>
+        <Button variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="grid gap-4 @xl/main:grid-cols-2 @3xl/main:grid-cols-3">

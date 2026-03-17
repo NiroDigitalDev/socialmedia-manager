@@ -2,6 +2,7 @@
 
 import { useGenerateStore, type Platform } from "@/stores/use-generate-store";
 import { useBrandIdentity } from "@/hooks/use-brand-identities";
+import { useStyles } from "@/hooks/use-styles";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -303,6 +304,7 @@ export function PreviewPanel() {
 
   // Fetch brand identity data if one is selected
   const { data: brandIdentity } = useBrandIdentity(brandIdentityId ?? "");
+  const { data: styles } = useStyles();
   const hasBrand = !!brandIdentityId && !!brandIdentity;
 
   // Determine accent color: colorOverride > brand palette > null
@@ -426,7 +428,7 @@ export function PreviewPanel() {
                 <div className="flex flex-wrap gap-1">
                   {styleIds.map((id) => (
                     <Badge key={id} variant="secondary" className="text-[10px]">
-                      {id}
+                      {styles?.find((s) => s.id === id)?.name ?? "Style"}
                     </Badge>
                   ))}
                 </div>

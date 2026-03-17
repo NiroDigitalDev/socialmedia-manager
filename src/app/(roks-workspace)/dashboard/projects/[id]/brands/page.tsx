@@ -65,7 +65,7 @@ export default function BrandIdentitiesPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const { data: brands, isLoading } = useBrandIdentities(id);
+  const { data: brands, isLoading, isError } = useBrandIdentities(id);
   const createBrand = useCreateBrandIdentity();
   const updateBrand = useUpdateBrandIdentity();
   const duplicateBrand = useDuplicateBrandIdentity();
@@ -170,6 +170,15 @@ export default function BrandIdentitiesPage({
       }
     );
   };
+
+  if (isError) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+        <p className="text-sm text-muted-foreground">Failed to load data. Please try again.</p>
+        <Button variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

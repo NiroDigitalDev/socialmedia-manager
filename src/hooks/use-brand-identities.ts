@@ -172,6 +172,47 @@ export function useAddPalette() {
   });
 }
 
+export function useUpdatePalette() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const { mutationFn } = trpc.brandIdentity.updatePalette.mutationOptions();
+  return useMutation({
+    mutationFn,
+    onMutate: async (updatedPalette) => {
+      await queryClient.cancelQueries({ queryKey: trpc.brandIdentity.list.queryKey() });
+      const previousQueries: { queryKey: unknown; data: unknown }[] = [];
+      queryClient
+        .getQueriesData({ queryKey: trpc.brandIdentity.list.queryKey() })
+        .forEach(([queryKey, data]) => {
+          previousQueries.push({ queryKey, data });
+        });
+
+      queryClient.setQueriesData(
+        { queryKey: trpc.brandIdentity.list.queryKey() },
+        (old: any[] | undefined) =>
+          (old ?? []).map((brand: any) => ({
+            ...brand,
+            palettes: brand.palettes?.map((p: any) =>
+              p.id === updatedPalette.paletteId ? { ...p, ...updatedPalette } : p
+            ),
+          }))
+      );
+
+      return { previousQueries };
+    },
+    onError: (_err, _vars, context) => {
+      context?.previousQueries?.forEach(({ queryKey, data }) => {
+        queryClient.setQueryData(queryKey as any, data);
+      });
+      toast.error("Failed to update palette");
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: trpc.brandIdentity.list.queryKey() });
+      queryClient.invalidateQueries({ queryKey: trpc.brandIdentity.get.queryKey() });
+    },
+  });
+}
+
 export function useRemovePalette() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();

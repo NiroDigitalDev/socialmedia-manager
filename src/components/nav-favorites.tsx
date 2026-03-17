@@ -38,6 +38,12 @@ import {
   ChevronRightIcon,
   GripVerticalIcon,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import Link from "next/link";
 import { useFavorites, useReorderFavorites } from "@/hooks/use-favorites";
 import { useProjects } from "@/hooks/use-projects";
@@ -87,8 +93,9 @@ function SortableFavoriteItem({
   };
 
   const Icon = iconMap[fav.targetType] ?? StarIcon;
+  const isCampaign = fav.targetType === "campaign";
 
-  return (
+  const content = (
     <SidebarMenuItem ref={setNodeRef} style={style}>
       <SidebarMenuButton asChild tooltip={label}>
         <Link href={href} className="group/fav">
@@ -106,6 +113,21 @@ function SortableFavoriteItem({
       </SidebarMenuButton>
     </SidebarMenuItem>
   );
+
+  if (isCampaign) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>{content}</TooltipTrigger>
+          <TooltipContent side="right">
+            <p>Open from project sidebar</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+
+  return content;
 }
 
 // ---------- NavFavorites ----------
@@ -118,9 +140,7 @@ export function NavFavorites() {
   const reorder = useReorderFavorites();
   const { favoritesCollapsed, toggleFavorites } = useSidebarStore();
 
-  // Filter out campaign favorites since we can't resolve their URL without projectId
-  const displayFavorites =
-    favorites?.filter((f) => f.targetType !== "campaign") ?? [];
+  const displayFavorites = favorites ?? [];
 
   const sensors = useSensors(
     useSensor(PointerSensor, {

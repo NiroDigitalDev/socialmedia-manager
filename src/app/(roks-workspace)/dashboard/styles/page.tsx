@@ -48,7 +48,7 @@ import {
 import { toast } from "sonner";
 
 export default function StylesPage() {
-  const { data: styles, isLoading } = useStyles();
+  const { data: styles, isLoading, isError } = useStyles();
   const createStyle = useCreateStyle();
   const deleteStyle = useDeleteStyle();
   const generatePreview = useGenerateStylePreview();
@@ -259,8 +259,16 @@ export default function StylesPage() {
         </div>
       </div>
 
+      {/* Error state */}
+      {isError && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+          <p className="text-sm text-muted-foreground">Failed to load data. Please try again.</p>
+          <Button variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+        </div>
+      )}
+
       {/* Loading skeleton grid */}
-      {isLoading && (
+      {!isError && isLoading && (
         <div className="@container/main">
           <div className="grid gap-4 grid-cols-1 @xl/main:grid-cols-2 @3xl/main:grid-cols-3 @5xl/main:grid-cols-4">
             {Array.from({ length: 6 }).map((_, i) => (

@@ -54,6 +54,34 @@ export function useCreateStyle() {
   });
 }
 
+export function useUpdateStyle() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const { mutationFn } = trpc.style.update.mutationOptions();
+  return useMutation({
+    mutationFn,
+    onMutate: async (updatedStyle) => {
+      await queryClient.cancelQueries({ queryKey: trpc.style.list.queryKey() });
+      const previous = queryClient.getQueryData(trpc.style.list.queryKey());
+      queryClient.setQueryData(trpc.style.list.queryKey(), (old: any) =>
+        (old ?? []).map((s: any) =>
+          s.id === updatedStyle.id ? { ...s, ...updatedStyle } : s
+        )
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(trpc.style.list.queryKey(), context.previous);
+      }
+      toast.error("Failed to update style");
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: trpc.style.list.queryKey() });
+    },
+  });
+}
+
 export function useDeleteStyle() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();

@@ -62,7 +62,7 @@ export default function CampaignsPage({
 }) {
   const { id } = use(params);
   const searchParams = useSearchParams();
-  const { data: campaigns, isLoading } = useCampaigns(id);
+  const { data: campaigns, isLoading, isError } = useCampaigns(id);
   const { data: brands } = useBrandIdentities(id);
   const createCampaign = useCreateCampaign();
   const deleteCampaign = useDeleteCampaign();
@@ -116,6 +116,15 @@ export default function CampaignsPage({
       }
     );
   };
+
+  if (isError) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+        <p className="text-sm text-muted-foreground">Failed to load data. Please try again.</p>
+        <Button variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

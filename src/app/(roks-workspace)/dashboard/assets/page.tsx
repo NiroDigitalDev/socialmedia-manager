@@ -1,6 +1,7 @@
 "use client";
 
 import { ImageIcon, FolderOpenIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AssetUpload } from "@/components/asset-upload";
 import { AssetGrid } from "@/components/asset-grid";
@@ -15,12 +16,23 @@ export default function AssetsPage() {
   const {
     data: referenceAssets,
     isLoading: refLoading,
+    isError: refError,
   } = useAssets({ category: "reference" });
   const {
     data: assetAssets,
     isLoading: assetLoading,
+    isError: assetError,
   } = useAssets({ category: "asset" });
   const deleteAsset = useDeleteAsset();
+
+  if (refError || assetError) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+        <p className="text-sm text-muted-foreground">Failed to load data. Please try again.</p>
+        <Button variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="@container/main flex flex-1 flex-col gap-4 py-4 md:py-6">
@@ -32,6 +44,11 @@ export default function AssetsPage() {
       </div>
 
       <div className="px-4 lg:px-6">
+        {!R2_PUBLIC_URL && (
+          <div className="mb-4 rounded-lg border border-yellow-500/50 bg-yellow-500/10 p-3 text-sm text-yellow-600">
+            R2 public URL not configured. Asset images won&apos;t display. Set NEXT_PUBLIC_R2_PUBLIC_URL in your environment.
+          </div>
+        )}
         <Tabs defaultValue="reference" className="w-full">
           <TabsList>
             <TabsTrigger value="reference">Reference &amp; Inspiration</TabsTrigger>

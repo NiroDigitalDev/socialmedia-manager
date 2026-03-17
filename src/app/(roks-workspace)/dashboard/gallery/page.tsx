@@ -15,6 +15,7 @@ import { PostCard, type PostCardData } from "@/components/post-card";
 import { PostDetailDrawer } from "@/components/post-detail-drawer";
 import { useGenerationList } from "@/hooks/use-generations";
 import { useProjects } from "@/hooks/use-projects";
+import { Button } from "@/components/ui/button";
 import { ImageIcon, SearchIcon } from "lucide-react";
 
 const platformOptions = [
@@ -44,7 +45,7 @@ export default function GalleryPage() {
 
   const { data: projects } = useProjects();
 
-  const { data, isLoading } = useGenerationList({
+  const { data, isLoading, isError } = useGenerationList({
     platform:
       platformFilter === "all"
         ? undefined
@@ -67,6 +68,15 @@ export default function GalleryPage() {
       setTimeout(() => setSelectedPost(null), 300);
     }
   };
+
+  if (isError) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+        <p className="text-sm text-muted-foreground">Failed to load data. Please try again.</p>
+        <Button variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="@container/main flex flex-1 flex-col gap-6 py-4 md:py-6">

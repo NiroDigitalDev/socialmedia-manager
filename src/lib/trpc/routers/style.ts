@@ -314,6 +314,24 @@ export const styleRouter = router({
       return style;
     }),
 
+  update: orgProtectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string().min(1).max(200).optional(),
+        description: z.string().max(2000).optional(),
+        promptText: z.string().min(1).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      const style = await ctx.prisma.style.findFirst({
+        where: { id, orgId: ctx.orgId, isPredefined: false },
+      });
+      if (!style) throw new TRPCError({ code: "NOT_FOUND" });
+      return ctx.prisma.style.update({ where: { id }, data });
+    }),
+
   delete: orgProtectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
@@ -350,6 +368,7 @@ export const styleRouter = router({
       return { success: true };
     }),
 
+  // TODO: Migrate style preview images from StoredImage (PostgreSQL blobs) to R2 assets
   generatePreview: orgProtectedProcedure
     .input(z.object({ promptText: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
