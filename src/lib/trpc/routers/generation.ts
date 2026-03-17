@@ -418,6 +418,7 @@ Example: [{ "platform": "instagram", "headline": "...", "sections": [...], "tone
         projectId: z.string().optional(),
         campaignId: z.string().optional(),
         platform: platformSchema.optional(),
+        search: z.string().optional(),
         limit: z.number().min(1).max(100).default(20),
         offset: z.number().min(0).default(0),
       })
@@ -427,6 +428,9 @@ Example: [{ "platform": "instagram", "headline": "...", "sections": [...], "tone
       if (input.projectId) where.projectId = input.projectId;
       if (input.campaignId) where.campaignId = input.campaignId;
       if (input.platform) where.platform = input.platform;
+      if (input.search) {
+        where.prompt = { contains: input.search, mode: "insensitive" };
+      }
 
       const [posts, total] = await Promise.all([
         ctx.prisma.generatedPost.findMany({
@@ -437,8 +441,7 @@ Example: [{ "platform": "instagram", "headline": "...", "sections": [...], "tone
           include: {
             images: {
               orderBy: { slideNumber: "asc" },
-              take: 1,
-              select: { id: true, mimeType: true },
+              select: { id: true, slideNumber: true, mimeType: true },
             },
             style: { select: { name: true } },
           },
@@ -449,10 +452,10 @@ Example: [{ "platform": "instagram", "headline": "...", "sections": [...], "tone
       return {
         posts: posts.map((post) => ({
           ...post,
-          thumbnailUrl: post.images[0]
-            ? `/api/images/${post.images[0].id}?type=generated`
-            : null,
-          images: undefined, // Strip raw images array from list view
+          images: post.images.map((img) => ({
+            id: img.id,
+            slideNumber: img.slideNumber,
+          })),
         })),
         total,
         hasMore: input.offset + input.limit < total,
@@ -463,25 +466,17 @@ Example: [{ "platform": "instagram", "headline": "...", "sections": [...], "tone
   byCampaign: orgProtectedProcedure
     .input(z.object({ campaignId: z.string() }))
     .query(async ({ ctx, input }) => {
-      const posts = await ctx.prisma.generatedPost.findMany({
+      return ctx.prisma.generatedPost.findMany({
         where: { campaignId: input.campaignId, orgId: ctx.orgId },
         orderBy: { createdAt: "desc" },
         include: {
           images: {
             orderBy: { slideNumber: "asc" },
-            take: 1,
-            select: { id: true, mimeType: true },
+            select: { id: true, slideNumber: true },
           },
           style: { select: { name: true } },
         },
       });
-
-      return posts.map((post) => ({
-        ...post,
-        thumbnailUrl: post.images[0]
-          ? `/api/images/${post.images[0].id}?type=generated`
-          : null,
-      }));
     }),
 
   // ---------- Recent (existing, improved) ----------

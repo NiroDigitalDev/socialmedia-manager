@@ -29,10 +29,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
+import { PostCard, type PostCardData } from "@/components/post-card";
+import { PostDetailDrawer } from "@/components/post-detail-drawer";
 import { useCampaign, useUpdateCampaign } from "@/hooks/use-campaigns";
 import { useBrandIdentities } from "@/hooks/use-brand-identities";
 import { useIdeas } from "@/hooks/use-content";
+import { useCampaignGenerations } from "@/hooks/use-generations";
 import { toast } from "sonner";
 
 const statusVariant: Record<string, "secondary" | "default" | "outline"> = {
@@ -54,12 +58,17 @@ export default function CampaignDetailPage({
   const updateCampaign = useUpdateCampaign();
   const { data: assignedIdeas = [] } = useIdeas({ projectId: id, campaignId });
   const { data: brands } = useBrandIdentities(id);
+  const { data: generations, isLoading: generationsLoading } = useCampaignGenerations(campaignId);
 
   // Edit dialog state
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editBrandId, setEditBrandId] = useState<string>("");
+
+  // Post detail drawer state
+  const [selectedPost, setSelectedPost] = useState<PostCardData | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const handleStatusChange = (status: string) => {
     updateCampaign.mutate(
@@ -98,6 +107,18 @@ export default function CampaignDetailPage({
         onError: (err) => toast.error(err.message ?? "Failed to update campaign"),
       }
     );
+  };
+
+  const handlePostClick = (post: PostCardData) => {
+    setSelectedPost(post);
+    setDrawerOpen(true);
+  };
+
+  const handleDrawerChange = (open: boolean) => {
+    setDrawerOpen(open);
+    if (!open) {
+      setTimeout(() => setSelectedPost(null), 300);
+    }
   };
 
   if (isLoading) {
@@ -182,7 +203,7 @@ export default function CampaignDetailPage({
             </Select>
 
             <Button asChild>
-              <Link href={`/dashboard/projects/${id}/generate`}>
+              <Link href={`/dashboard/projects/${id}/generate?campaignId=${campaignId}`}>
                 <SparklesIcon className="mr-2 size-4" />
                 Generate Content
               </Link>
@@ -258,22 +279,59 @@ export default function CampaignDetailPage({
 
       {/* Generated content section */}
       <div className="px-4 lg:px-6">
-        <h2 className="text-lg font-semibold">Generated Content</h2>
-        <EmptyState
-          icon={SparklesIcon}
-          title="No generated content yet"
-          description="Use the Generate Content button to start creating posts for this campaign."
-          action={
-            <Button asChild>
-              <Link href={`/dashboard/projects/${id}/generate`}>
-                <SparklesIcon className="mr-2 size-4" />
-                Generate Content
-              </Link>
-            </Button>
-          }
-          className="py-12"
-        />
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Generated Content</h2>
+          {generations && generations.length > 0 && (
+            <span className="text-sm text-muted-foreground">
+              {generations.length} post{generations.length !== 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+
+        {generationsLoading ? (
+          <div className="mt-4 grid gap-4 @xs/main:grid-cols-2 @lg/main:grid-cols-3 @3xl/main:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="space-y-2">
+                <Skeleton className="aspect-[4/5] rounded-xl" />
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-1/2" />
+              </div>
+            ))}
+          </div>
+        ) : generations && generations.length > 0 ? (
+          <div className="mt-4 grid gap-4 @xs/main:grid-cols-2 @lg/main:grid-cols-3 @3xl/main:grid-cols-4">
+            {generations.map((post: PostCardData) => (
+              <PostCard
+                key={post.id}
+                post={post}
+                onClick={() => handlePostClick(post)}
+              />
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            icon={SparklesIcon}
+            title="No generated content yet"
+            description="Use the Generate Content button to start creating posts for this campaign."
+            action={
+              <Button asChild>
+                <Link href={`/dashboard/projects/${id}/generate?campaignId=${campaignId}`}>
+                  <SparklesIcon className="mr-2 size-4" />
+                  Generate Content
+                </Link>
+              </Button>
+            }
+            className="py-12"
+          />
+        )}
       </div>
+
+      {/* Post Detail Drawer */}
+      <PostDetailDrawer
+        post={selectedPost}
+        open={drawerOpen}
+        onOpenChange={handleDrawerChange}
+      />
 
       {/* Edit Campaign Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>

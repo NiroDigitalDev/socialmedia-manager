@@ -54,6 +54,7 @@ export function useGenerationList(filters?: {
   projectId?: string;
   campaignId?: string;
   platform?: "instagram" | "linkedin" | "reddit" | "x" | "blog" | "email";
+  search?: string;
   limit?: number;
   offset?: number;
 }) {
@@ -63,7 +64,8 @@ export function useGenerationList(filters?: {
       projectId: filters?.projectId,
       campaignId: filters?.campaignId,
       platform: filters?.platform,
-      limit: filters?.limit ?? 20,
+      search: filters?.search,
+      limit: filters?.limit ?? 50,
       offset: filters?.offset ?? 0,
     })
   );
