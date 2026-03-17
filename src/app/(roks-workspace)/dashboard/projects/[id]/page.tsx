@@ -93,7 +93,7 @@ export default function ProjectOverviewPage({
           </div>
           <div className="flex gap-2">
             <Button asChild variant="outline">
-              <Link href={`/dashboard/projects/${id}/campaigns`}>
+              <Link href={`/dashboard/projects/${id}/campaigns?create=true`}>
                 <PlusIcon className="mr-2 size-4" />
                 New Campaign
               </Link>

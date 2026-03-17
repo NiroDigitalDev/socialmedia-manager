@@ -74,6 +74,7 @@ export const contentRouter = router({
         sourceId: z.string().optional(),
         contentType: z.string().optional(),
         isSaved: z.boolean().optional(),
+        campaignId: z.string().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -84,6 +85,7 @@ export const contentRouter = router({
           ...(input.sourceId ? { sourceId: input.sourceId } : {}),
           ...(input.contentType ? { contentType: input.contentType } : {}),
           ...(input.isSaved !== undefined ? { isSaved: input.isSaved } : {}),
+          ...(input.campaignId ? { campaignId: input.campaignId } : {}),
         },
         orderBy: { createdAt: "desc" },
         include: { source: { select: { id: true, title: true } } },

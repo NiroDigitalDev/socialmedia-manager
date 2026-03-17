@@ -35,6 +35,7 @@ export function useIdeas(filters?: {
   sourceId?: string;
   contentType?: string;
   isSaved?: boolean;
+  campaignId?: string;
 }) {
   const trpc = useTRPC();
   return useQuery(trpc.content.listIdeas.queryOptions(filters ?? {}));

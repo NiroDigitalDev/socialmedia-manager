@@ -16,6 +16,7 @@ import {
 import { StarIcon, FolderIcon, FlaskConicalIcon, ChevronRightIcon } from "lucide-react";
 import Link from "next/link";
 import { useFavorites } from "@/hooks/use-favorites";
+import { useProjects } from "@/hooks/use-projects";
 import { useSidebarStore } from "@/stores/use-sidebar-store";
 
 const iconMap: Record<string, React.ElementType> = {
@@ -26,9 +27,21 @@ const iconMap: Record<string, React.ElementType> = {
 
 export function NavFavorites() {
   const { data: favorites } = useFavorites();
+  const { data: projects } = useProjects();
   const { favoritesCollapsed, toggleFavorites } = useSidebarStore();
 
-  if (!favorites || favorites.length === 0) {
+  // Filter out campaign favorites since we can't resolve their URL without projectId
+  const displayFavorites = favorites?.filter(f => f.targetType !== "campaign") ?? [];
+
+  const getLabel = (fav: { targetType: string; targetId: string }) => {
+    if (fav.targetType === "route") return fav.targetId.split("/").pop() ?? fav.targetId;
+    if (fav.targetType === "project") {
+      return projects?.find(p => p.id === fav.targetId)?.name ?? "Project";
+    }
+    return "Campaign";
+  };
+
+  if (displayFavorites.length === 0) {
     return null;
   }
 
@@ -44,8 +57,9 @@ export function NavFavorites() {
         <CollapsibleContent>
           <SidebarGroupContent>
             <SidebarMenu>
-              {favorites.map((fav) => {
+              {displayFavorites.map((fav) => {
                 const Icon = iconMap[fav.targetType] ?? StarIcon;
+                const label = getLabel(fav);
                 const href =
                   fav.targetType === "route"
                     ? fav.targetId
@@ -54,10 +68,10 @@ export function NavFavorites() {
                       : "#";
                 return (
                   <SidebarMenuItem key={fav.id}>
-                    <SidebarMenuButton asChild tooltip={fav.targetId}>
+                    <SidebarMenuButton asChild tooltip={label}>
                       <Link href={href}>
                         <Icon className="size-4" />
-                        <span className="truncate">{fav.targetId}</span>
+                        <span className="truncate">{label}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

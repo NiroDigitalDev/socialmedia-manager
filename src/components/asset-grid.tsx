@@ -7,6 +7,7 @@ import {
   FileIcon,
   Trash2Icon,
   ExternalLinkIcon,
+  ArrowRightLeftIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -38,7 +39,9 @@ interface AssetGridProps {
   assets: Asset[];
   publicUrlBase: string;
   onDelete?: (id: string) => void;
+  onMoveToGlobal?: (id: string) => void;
   isDeleting?: boolean;
+  isMoving?: boolean;
   className?: string;
 }
 
@@ -73,7 +76,9 @@ export function AssetGrid({
   assets,
   publicUrlBase,
   onDelete,
+  onMoveToGlobal,
   isDeleting,
+  isMoving,
   className,
 }: AssetGridProps) {
   const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
@@ -139,22 +144,39 @@ export function AssetGrid({
                 </div>
               </div>
 
-              {/* Delete button */}
-              {onDelete && (
-                <Button
-                  variant="destructive"
-                  size="icon"
-                  className="absolute right-2 top-2 size-7 opacity-0 transition-opacity group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeletingAssetId(asset.id);
-                    setDeletingAssetName(asset.fileName);
-                  }}
-                  disabled={isDeleting}
-                >
-                  <Trash2Icon className="size-3.5" />
-                </Button>
-              )}
+              {/* Action buttons */}
+              <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                {onMoveToGlobal && asset.projectId && (
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    className="size-7"
+                    title="Move to Global"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onMoveToGlobal(asset.id);
+                    }}
+                    disabled={isMoving}
+                  >
+                    <ArrowRightLeftIcon className="size-3.5" />
+                  </Button>
+                )}
+                {onDelete && (
+                  <Button
+                    variant="destructive"
+                    size="icon"
+                    className="size-7"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeletingAssetId(asset.id);
+                      setDeletingAssetName(asset.fileName);
+                    }}
+                    disabled={isDeleting}
+                  >
+                    <Trash2Icon className="size-3.5" />
+                  </Button>
+                )}
+              </div>
             </div>
           );
         })}

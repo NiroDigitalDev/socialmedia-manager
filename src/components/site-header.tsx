@@ -25,6 +25,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   content: "Content",
   campaigns: "Campaigns",
   "brand-identities": "Brand Identities",
+  brands: "Brand Identities",
   favorites: "Favorites",
 }
 

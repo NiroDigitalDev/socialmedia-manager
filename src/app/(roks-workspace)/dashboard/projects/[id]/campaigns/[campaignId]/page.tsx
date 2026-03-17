@@ -52,7 +52,7 @@ export default function CampaignDetailPage({
   const { id, campaignId } = use(params);
   const { data: campaign, isLoading } = useCampaign(campaignId);
   const updateCampaign = useUpdateCampaign();
-  const { data: ideas } = useIdeas({ projectId: id });
+  const { data: assignedIdeas = [] } = useIdeas({ projectId: id, campaignId });
   const { data: brands } = useBrandIdentities(id);
 
   // Edit dialog state
@@ -60,9 +60,6 @@ export default function CampaignDetailPage({
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editBrandId, setEditBrandId] = useState<string>("");
-
-  // Filter ideas assigned to this campaign
-  const assignedIdeas = ideas?.filter((i) => i.campaignId === campaignId) ?? [];
 
   const handleStatusChange = (status: string) => {
     updateCampaign.mutate(

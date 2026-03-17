@@ -396,7 +396,7 @@ function IdeasTab({ projectId }: { projectId: string }) {
                   )}
                 </div>
               </CardContent>
-              <CardFooter className="justify-end">
+              <CardFooter className="justify-end gap-1">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -409,6 +409,20 @@ function IdeasTab({ projectId }: { projectId: string }) {
                       idea.isSaved && "fill-current text-primary"
                     )}
                   />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() =>
+                    bulkDelete.mutate(
+                      { ids: [idea.id] },
+                      { onError: (err) => toast.error(err.message ?? "Failed to delete idea") }
+                    )
+                  }
+                  disabled={bulkDelete.isPending}
+                >
+                  <Trash2Icon className="size-4" />
                 </Button>
               </CardFooter>
             </Card>
