@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/lib/trpc/client";
+import { toast } from "sonner";
 
 export function useSources(projectId?: string) {
   const trpc = useTRPC();
@@ -14,7 +15,12 @@ export function useCreateSource() {
   return useMutation({
     ...trpc.content.createSource.mutationOptions(),
     onSuccess: () => {
-      queryClient.invalidateQueries();
+      queryClient.invalidateQueries({
+        queryKey: trpc.content.listSources.queryKey(),
+      });
+    },
+    onError: () => {
+      toast.error("Failed to create content source");
     },
   });
 }
@@ -25,7 +31,15 @@ export function useDeleteSource() {
   return useMutation({
     ...trpc.content.deleteSource.mutationOptions(),
     onSuccess: () => {
-      queryClient.invalidateQueries();
+      queryClient.invalidateQueries({
+        queryKey: trpc.content.listSources.queryKey(),
+      });
+      queryClient.invalidateQueries({
+        queryKey: trpc.content.listIdeas.queryKey(),
+      });
+    },
+    onError: () => {
+      toast.error("Failed to delete content source");
     },
   });
 }
@@ -47,7 +61,12 @@ export function useToggleIdeaSave() {
   return useMutation({
     ...trpc.content.toggleIdeaSave.mutationOptions(),
     onSuccess: () => {
-      queryClient.invalidateQueries();
+      queryClient.invalidateQueries({
+        queryKey: trpc.content.listIdeas.queryKey(),
+      });
+    },
+    onError: () => {
+      toast.error("Failed to update idea");
     },
   });
 }
@@ -58,7 +77,33 @@ export function useBulkDeleteIdeas() {
   return useMutation({
     ...trpc.content.bulkDeleteIdeas.mutationOptions(),
     onSuccess: () => {
-      queryClient.invalidateQueries();
+      queryClient.invalidateQueries({
+        queryKey: trpc.content.listIdeas.queryKey(),
+      });
+    },
+    onError: () => {
+      toast.error("Failed to delete ideas");
+    },
+  });
+}
+
+export function useGenerateIdeas() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  return useMutation({
+    ...trpc.content.generateIdeas.mutationOptions(),
+    onSuccess: (data) => {
+      // Invalidate both sources (idea count changed) and ideas list
+      queryClient.invalidateQueries({
+        queryKey: trpc.content.listSources.queryKey(),
+      });
+      queryClient.invalidateQueries({
+        queryKey: trpc.content.listIdeas.queryKey(),
+      });
+      toast.success(`Generated ${data.count} ideas`);
+    },
+    onError: () => {
+      toast.error("Failed to generate content ideas");
     },
   });
 }
