@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/empty-state";
+import { ContentSourceSkeleton, ContentIdeaSkeleton } from "@/components/skeletons";
 import {
   useSources,
   useCreateSource,
@@ -119,7 +120,7 @@ function SourcesTab({ projectId }: { projectId: string }) {
     return (
       <div className="grid gap-4 @xl/main:grid-cols-2 @3xl/main:grid-cols-3">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="h-40 animate-pulse rounded-xl bg-muted" />
+          <ContentSourceSkeleton key={i} />
         ))}
       </div>
     );
@@ -313,8 +314,8 @@ function IdeasTab({ projectId }: { projectId: string }) {
   if (isLoading) {
     return (
       <div className="grid gap-4 @xl/main:grid-cols-2 @3xl/main:grid-cols-3">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="h-36 animate-pulse rounded-xl bg-muted" />
+        {Array.from({ length: 6 }).map((_, i) => (
+          <ContentIdeaSkeleton key={i} />
         ))}
       </div>
     );

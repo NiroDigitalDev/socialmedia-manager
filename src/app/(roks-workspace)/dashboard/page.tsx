@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/ca
 import { Button } from "@/components/ui/button";
 import { ProjectCard } from "@/components/project-card";
 import { EmptyState } from "@/components/empty-state";
+import { ProjectCardSkeleton } from "@/components/skeletons";
 import { useProjects } from "@/hooks/use-projects";
 
 export default function DashboardPage() {
@@ -55,10 +56,7 @@ export default function DashboardPage() {
       {isLoading ? (
         <div className="grid gap-4 px-4 lg:px-6 @xl/main:grid-cols-2 @4xl/main:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-40 animate-pulse rounded-xl bg-muted"
-            />
+            <ProjectCardSkeleton key={i} />
           ))}
         </div>
       ) : projects && projects.length > 0 ? (

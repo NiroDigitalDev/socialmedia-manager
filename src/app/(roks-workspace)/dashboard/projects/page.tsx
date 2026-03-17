@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ProjectCard } from "@/components/project-card";
 import { EmptyState } from "@/components/empty-state";
+import { ProjectCardSkeleton } from "@/components/skeletons";
 import { useProjects, useCreateProject } from "@/hooks/use-projects";
 import { toast } from "sonner";
 
@@ -128,10 +129,7 @@ export default function ProjectsPage() {
       {isLoading ? (
         <div className="grid gap-4 px-4 lg:px-6 @xl/main:grid-cols-2 @4xl/main:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-40 animate-pulse rounded-xl bg-muted"
-            />
+            <ProjectCardSkeleton key={i} />
           ))}
         </div>
       ) : projects && projects.length > 0 ? (

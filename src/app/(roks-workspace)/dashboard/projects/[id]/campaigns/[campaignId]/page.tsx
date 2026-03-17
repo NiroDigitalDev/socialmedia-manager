@@ -31,6 +31,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
+import { PageHeaderSkeleton, StatCardSkeleton, ContentIdeaSkeleton } from "@/components/skeletons";
 import { PostCard, type PostCardData } from "@/components/post-card";
 import { PostDetailDrawer } from "@/components/post-detail-drawer";
 import { useCampaign, useUpdateCampaign } from "@/hooks/use-campaigns";
@@ -124,13 +125,18 @@ export default function CampaignDetailPage({
   if (isLoading) {
     return (
       <div className="@container/main flex flex-1 flex-col gap-6 py-4 md:py-6">
-        <div className="px-4 lg:px-6">
-          <div className="h-8 w-48 animate-pulse rounded bg-muted" />
-          <div className="mt-2 h-4 w-72 animate-pulse rounded bg-muted" />
+        <PageHeaderSkeleton />
+        <div className="grid gap-4 px-4 lg:px-6 @xl/main:grid-cols-2 @4xl/main:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <StatCardSkeleton key={i} />
+          ))}
         </div>
-        <div className="grid gap-4 px-4 lg:px-6 @xl/main:grid-cols-2">
-          {Array.from({ length: 2 }).map((_, i) => (
-            <div key={i} className="h-48 animate-pulse rounded-xl bg-muted" />
+        <div className="px-4 lg:px-6">
+          <Skeleton className="h-6 w-32" />
+        </div>
+        <div className="grid gap-4 px-4 lg:px-6 @xl/main:grid-cols-2 @3xl/main:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <ContentIdeaSkeleton key={i} />
           ))}
         </div>
       </div>

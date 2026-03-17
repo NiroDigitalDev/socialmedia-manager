@@ -43,6 +43,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/empty-state";
+import { PageHeaderSkeleton, CampaignCardSkeleton } from "@/components/skeletons";
 import { useCampaigns, useCreateCampaign, useDeleteCampaign } from "@/hooks/use-campaigns";
 import { useBrandIdentities } from "@/hooks/use-brand-identities";
 import { toast } from "sonner";
@@ -119,13 +120,10 @@ export default function CampaignsPage({
   if (isLoading) {
     return (
       <div className="@container/main flex flex-1 flex-col gap-6 py-4 md:py-6">
-        <div className="px-4 lg:px-6">
-          <div className="h-8 w-48 animate-pulse rounded bg-muted" />
-          <div className="mt-2 h-4 w-72 animate-pulse rounded bg-muted" />
-        </div>
+        <PageHeaderSkeleton />
         <div className="grid gap-4 px-4 lg:px-6 @xl/main:grid-cols-2 @3xl/main:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-40 animate-pulse rounded-xl bg-muted" />
+            <CampaignCardSkeleton key={i} />
           ))}
         </div>
       </div>

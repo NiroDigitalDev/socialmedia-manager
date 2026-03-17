@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AssetUpload } from "@/components/asset-upload";
 import { AssetGrid } from "@/components/asset-grid";
 import { EmptyState } from "@/components/empty-state";
+import { AssetCardSkeleton } from "@/components/skeletons";
 import { useAssets, useDeleteAsset } from "@/hooks/use-assets";
 import { toast } from "sonner";
 
@@ -48,7 +49,7 @@ export default function ProjectAssetsPage({
             {refLoading ? (
               <div className="grid gap-4 @xs/main:grid-cols-2 @lg/main:grid-cols-3 @3xl/main:grid-cols-4">
                 {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="aspect-square animate-pulse rounded-xl bg-muted" />
+                  <AssetCardSkeleton key={i} />
                 ))}
               </div>
             ) : referenceAssets && referenceAssets.length > 0 ? (
@@ -73,7 +74,7 @@ export default function ProjectAssetsPage({
             {assetLoading ? (
               <div className="grid gap-4 @xs/main:grid-cols-2 @lg/main:grid-cols-3 @3xl/main:grid-cols-4">
                 {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="aspect-square animate-pulse rounded-xl bg-muted" />
+                  <AssetCardSkeleton key={i} />
                 ))}
               </div>
             ) : assetAssets && assetAssets.length > 0 ? (

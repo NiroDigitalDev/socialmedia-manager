@@ -13,7 +13,9 @@ import {
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
+import { PageHeaderSkeleton, StatCardSkeleton, CampaignCardSkeleton } from "@/components/skeletons";
 import { useProject } from "@/hooks/use-projects";
 import { useCampaigns } from "@/hooks/use-campaigns";
 import { useBrandIdentities } from "@/hooks/use-brand-identities";
@@ -31,13 +33,18 @@ export default function ProjectOverviewPage({
   if (projectLoading) {
     return (
       <div className="@container/main flex flex-1 flex-col gap-6 py-4 md:py-6">
-        <div className="px-4 lg:px-6">
-          <div className="h-8 w-48 animate-pulse rounded bg-muted" />
-          <div className="mt-2 h-4 w-72 animate-pulse rounded bg-muted" />
-        </div>
+        <PageHeaderSkeleton />
         <div className="grid gap-4 px-4 lg:px-6 @xl/main:grid-cols-2 @4xl/main:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-24 animate-pulse rounded-xl bg-muted" />
+            <StatCardSkeleton key={i} />
+          ))}
+        </div>
+        <div className="px-4 lg:px-6">
+          <Skeleton className="h-6 w-40" />
+        </div>
+        <div className="grid gap-4 px-4 lg:px-6 @xl/main:grid-cols-2 @4xl/main:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <CampaignCardSkeleton key={i} />
           ))}
         </div>
       </div>
@@ -163,7 +170,7 @@ export default function ProjectOverviewPage({
         {campaignsLoading ? (
           <div className="mt-4 grid gap-4 @xl/main:grid-cols-2 @4xl/main:grid-cols-3">
             {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-32 animate-pulse rounded-xl bg-muted" />
+              <CampaignCardSkeleton key={i} />
             ))}
           </div>
         ) : campaigns && campaigns.length > 0 ? (

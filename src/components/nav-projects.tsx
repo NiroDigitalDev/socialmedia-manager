@@ -32,6 +32,7 @@ import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { useProjects } from "@/hooks/use-projects";
 import { useSidebarStore } from "@/stores/use-sidebar-store";
+import { SidebarProjectSkeleton } from "@/components/skeletons";
 import { cn } from "@/lib/utils";
 
 const projectSubPages = [
@@ -50,7 +51,7 @@ function extractProjectId(pathname: string): string | null {
 
 export function NavProjects() {
   const pathname = usePathname();
-  const { data: projects } = useProjects();
+  const { data: projects, isLoading } = useProjects();
   const {
     expandedProjectIds,
     projectsCollapsed,
@@ -84,66 +85,72 @@ export function NavProjects() {
         <CollapsibleContent>
           <SidebarGroupContent>
             <SidebarMenu>
-              {projects?.map((project) => {
-                const isExpanded = expandedProjectIds.has(project.id);
-                const isActiveProject = activeProjectId === project.id;
-                const projectBase = `/dashboard/projects/${project.id}`;
+              {isLoading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <SidebarMenuItem key={i}>
+                    <SidebarProjectSkeleton />
+                  </SidebarMenuItem>
+                ))
+              ) : projects && projects.length > 0 ? (
+                projects.map((project) => {
+                  const isExpanded = expandedProjectIds.has(project.id);
+                  const isActiveProject = activeProjectId === project.id;
+                  const projectBase = `/dashboard/projects/${project.id}`;
 
-                return (
-                  <Collapsible
-                    key={project.id}
-                    open={isExpanded}
-                    onOpenChange={() => toggleProject(project.id)}
-                  >
-                    <SidebarMenuItem>
-                      <CollapsibleTrigger asChild>
-                        <SidebarMenuButton
-                          tooltip={project.name}
-                          className={cn(
-                            isActiveProject &&
-                              "border-l-2 border-primary pl-[calc(theme(spacing.2)-2px)]"
-                          )}
-                        >
-                          <div
-                            className="size-3 shrink-0 rounded-sm"
-                            style={{
-                              backgroundColor: project.color ?? "#737373",
-                            }}
-                          />
-                          <span className="truncate">{project.name}</span>
-                          <ChevronRightIcon className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-90" />
-                        </SidebarMenuButton>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <SidebarMenuSub>
-                          {projectSubPages.map((sub) => {
-                            const href = `${projectBase}${sub.segment}`;
-                            const isActive =
-                              sub.segment === ""
-                                ? pathname === projectBase
-                                : pathname.startsWith(href);
-                            return (
-                              <SidebarMenuSubItem key={sub.title}>
-                                <SidebarMenuSubButton
-                                  asChild
-                                  isActive={isActive}
-                                >
-                                  <Link href={href}>
-                                    <sub.icon className="size-4" />
-                                    <span>{sub.title}</span>
-                                  </Link>
-                                </SidebarMenuSubButton>
-                              </SidebarMenuSubItem>
-                            );
-                          })}
-                        </SidebarMenuSub>
-                      </CollapsibleContent>
-                    </SidebarMenuItem>
-                  </Collapsible>
-                );
-              })}
-
-              {(!projects || projects.length === 0) && (
+                  return (
+                    <Collapsible
+                      key={project.id}
+                      open={isExpanded}
+                      onOpenChange={() => toggleProject(project.id)}
+                    >
+                      <SidebarMenuItem>
+                        <CollapsibleTrigger asChild>
+                          <SidebarMenuButton
+                            tooltip={project.name}
+                            className={cn(
+                              isActiveProject &&
+                                "border-l-2 border-primary pl-[calc(theme(spacing.2)-2px)]"
+                            )}
+                          >
+                            <div
+                              className="size-3 shrink-0 rounded-sm"
+                              style={{
+                                backgroundColor: project.color ?? "#737373",
+                              }}
+                            />
+                            <span className="truncate">{project.name}</span>
+                            <ChevronRightIcon className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-90" />
+                          </SidebarMenuButton>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <SidebarMenuSub>
+                            {projectSubPages.map((sub) => {
+                              const href = `${projectBase}${sub.segment}`;
+                              const isActive =
+                                sub.segment === ""
+                                  ? pathname === projectBase
+                                  : pathname.startsWith(href);
+                              return (
+                                <SidebarMenuSubItem key={sub.title}>
+                                  <SidebarMenuSubButton
+                                    asChild
+                                    isActive={isActive}
+                                  >
+                                    <Link href={href}>
+                                      <sub.icon className="size-4" />
+                                      <span>{sub.title}</span>
+                                    </Link>
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                              );
+                            })}
+                          </SidebarMenuSub>
+                        </CollapsibleContent>
+                      </SidebarMenuItem>
+                    </Collapsible>
+                  );
+                })
+              ) : (
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild>
                     <Link
