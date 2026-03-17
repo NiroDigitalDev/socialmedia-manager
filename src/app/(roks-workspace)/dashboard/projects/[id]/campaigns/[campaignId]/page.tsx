@@ -20,6 +20,7 @@ import {
 import { EmptyState } from "@/components/empty-state";
 import { useCampaign, useUpdateCampaign } from "@/hooks/use-campaigns";
 import { useIdeas } from "@/hooks/use-content";
+import { toast } from "sonner";
 
 const statusVariant: Record<string, "secondary" | "default" | "outline"> = {
   draft: "secondary",
@@ -44,10 +45,15 @@ export default function CampaignDetailPage({
   const assignedIdeas = ideas?.filter((i) => i.campaignId === campaignId) ?? [];
 
   const handleStatusChange = (status: string) => {
-    updateCampaign.mutate({
-      id: campaignId,
-      status: status as (typeof statuses)[number],
-    });
+    updateCampaign.mutate(
+      {
+        id: campaignId,
+        status: status as (typeof statuses)[number],
+      },
+      {
+        onError: (err) => toast.error(err.message ?? "Operation failed"),
+      }
+    );
   };
 
   if (isLoading) {

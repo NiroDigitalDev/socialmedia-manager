@@ -114,19 +114,27 @@ export async function POST(request: NextRequest) {
   }
 
   // Create DB record
-  const asset = await prisma.asset.create({
-    data: {
-      r2Key,
-      mimeType: file.type,
-      fileName: file.name,
-      category: category as "reference" | "asset",
-      projectId: projectId || undefined,
-      orgId,
-    },
-  });
+  try {
+    const asset = await prisma.asset.create({
+      data: {
+        r2Key,
+        mimeType: file.type,
+        fileName: file.name,
+        category: category as "reference" | "asset",
+        projectId: projectId || undefined,
+        orgId,
+      },
+    });
 
-  return NextResponse.json({
-    ...asset,
-    url: publicUrl(r2Key),
-  });
+    return NextResponse.json({
+      ...asset,
+      url: publicUrl(r2Key),
+    });
+  } catch (err) {
+    console.error("DB record creation failed:", err);
+    return NextResponse.json(
+      { error: "Failed to save asset record" },
+      { status: 500 }
+    );
+  }
 }

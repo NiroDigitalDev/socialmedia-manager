@@ -3,9 +3,12 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/lib/trpc/client";
 
-export function useBrandIdentities(projectId: string) {
+export function useBrandIdentities(projectId: string | null | undefined) {
   const trpc = useTRPC();
-  return useQuery(trpc.brandIdentity.list.queryOptions({ projectId }));
+  return useQuery({
+    ...trpc.brandIdentity.list.queryOptions({ projectId: projectId ?? "" }),
+    enabled: !!projectId,
+  });
 }
 
 export function useBrandIdentity(id: string) {
@@ -34,6 +37,9 @@ export function useUpdateBrandIdentity() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
         queryKey: trpc.brandIdentity.get.queryKey({ id: variables.id }),
+      });
+      queryClient.invalidateQueries({
+        queryKey: trpc.brandIdentity.list.queryKey(),
       });
     },
   });

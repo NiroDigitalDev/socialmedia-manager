@@ -35,6 +35,9 @@ export function useUpdateCampaign() {
       queryClient.invalidateQueries({
         queryKey: trpc.campaign.get.queryKey({ id: variables.id }),
       });
+      queryClient.invalidateQueries({
+        queryKey: trpc.campaign.list.queryKey(),
+      });
     },
   });
 }

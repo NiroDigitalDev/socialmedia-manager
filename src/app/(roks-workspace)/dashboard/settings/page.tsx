@@ -37,17 +37,19 @@ export default function SettingsPage() {
   }
 
   // tRPC queries — only run when activeOrg is available
-  const membersQuery = useQuery(
-    trpc.org.members.queryOptions(
+  const membersQuery = useQuery({
+    ...trpc.org.members.queryOptions(
       { organizationId: activeOrg?.id || "" },
-    )
-  );
+    ),
+    enabled: !!activeOrg?.id,
+  });
 
-  const invitationsQuery = useQuery(
-    trpc.org.invitations.queryOptions(
+  const invitationsQuery = useQuery({
+    ...trpc.org.invitations.queryOptions(
       { organizationId: activeOrg?.id || "" },
-    )
-  );
+    ),
+    enabled: !!activeOrg?.id,
+  });
 
   // Update name mutation
   const updateName = useMutation(

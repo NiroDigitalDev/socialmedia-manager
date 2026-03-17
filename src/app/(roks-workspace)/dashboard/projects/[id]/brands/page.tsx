@@ -38,6 +38,7 @@ import {
   useDuplicateBrandIdentity,
   useDeleteBrandIdentity,
 } from "@/hooks/use-brand-identities";
+import { toast } from "sonner";
 
 export default function BrandIdentitiesPage({
   params,
@@ -68,6 +69,7 @@ export default function BrandIdentitiesPage({
           setName("");
           setTagline("");
         },
+        onError: (err) => toast.error(err.message ?? "Operation failed"),
       }
     );
   };
@@ -183,7 +185,7 @@ export default function BrandIdentitiesPage({
                         Edit
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onClick={() => duplicateBrand.mutate({ id: brand.id })}
+                        onClick={() => duplicateBrand.mutate({ id: brand.id }, { onError: (err) => toast.error(err.message ?? "Operation failed") })}
                       >
                         <CopyIcon className="mr-2 size-4" />
                         Duplicate
@@ -191,7 +193,7 @@ export default function BrandIdentitiesPage({
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
                         variant="destructive"
-                        onClick={() => deleteBrand.mutate({ id: brand.id })}
+                        onClick={() => deleteBrand.mutate({ id: brand.id }, { onError: (err) => toast.error(err.message ?? "Operation failed") })}
                       >
                         <TrashIcon className="mr-2 size-4" />
                         Delete

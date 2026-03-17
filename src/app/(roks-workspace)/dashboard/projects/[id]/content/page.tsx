@@ -43,6 +43,7 @@ import {
   useBulkDeleteIdeas,
 } from "@/hooks/use-content";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 export default function ContentPage({
   params,
@@ -97,6 +98,7 @@ function SourcesTab({ projectId }: { projectId: string }) {
           setTitle("");
           setRawText("");
         },
+        onError: (err) => toast.error(err.message ?? "Operation failed"),
       }
     );
   };
@@ -189,7 +191,7 @@ function SourcesTab({ projectId }: { projectId: string }) {
                   variant="ghost"
                   size="sm"
                   className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => deleteSource.mutate({ id: source.id })}
+                  onClick={() => deleteSource.mutate({ id: source.id }, { onError: (err) => toast.error(err.message ?? "Operation failed") })}
                   disabled={deleteSource.isPending}
                 >
                   <TrashIcon className="size-4" />
@@ -252,7 +254,10 @@ function IdeasTab({ projectId }: { projectId: string }) {
     if (selectedIds.size === 0) return;
     bulkDelete.mutate(
       { ids: [...selectedIds] },
-      { onSuccess: () => setSelectedIds(new Set()) }
+      {
+        onSuccess: () => setSelectedIds(new Set()),
+        onError: (err) => toast.error(err.message ?? "Operation failed"),
+      }
     );
   };
 
@@ -346,7 +351,7 @@ function IdeasTab({ projectId }: { projectId: string }) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => toggleSave.mutate({ id: idea.id })}
+                  onClick={() => toggleSave.mutate({ id: idea.id }, { onError: (err) => toast.error(err.message ?? "Operation failed") })}
                   disabled={toggleSave.isPending}
                 >
                   <BookmarkIcon

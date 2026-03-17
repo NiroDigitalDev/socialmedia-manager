@@ -27,7 +27,7 @@ export function StepStyleBrand() {
   } = useGenerateStore();
 
   const { data: brandIdentities, isLoading: brandsLoading } =
-    useBrandIdentities(projectId ?? "");
+    useBrandIdentities(projectId);
   const hasBrands = !!projectId && (brandIdentities?.length ?? 0) > 0;
 
   const useCustomColors = colorOverride !== null;

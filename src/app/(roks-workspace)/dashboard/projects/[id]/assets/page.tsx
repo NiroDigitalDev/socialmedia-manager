@@ -7,8 +7,9 @@ import { AssetUpload } from "@/components/asset-upload";
 import { AssetGrid } from "@/components/asset-grid";
 import { EmptyState } from "@/components/empty-state";
 import { useAssets, useDeleteAsset } from "@/hooks/use-assets";
+import { toast } from "sonner";
 
-const R2_PUBLIC_URL = process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? process.env.R2_PUBLIC_URL ?? "";
+const R2_PUBLIC_URL = process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? "";
 
 export default function ProjectAssetsPage({
   params,
@@ -54,7 +55,7 @@ export default function ProjectAssetsPage({
               <AssetGrid
                 assets={referenceAssets}
                 publicUrlBase={R2_PUBLIC_URL}
-                onDelete={(id) => deleteAsset.mutate({ id })}
+                onDelete={(id) => deleteAsset.mutate({ id }, { onError: (err) => toast.error(err.message ?? "Operation failed") })}
                 isDeleting={deleteAsset.isPending}
               />
             ) : (
@@ -79,7 +80,7 @@ export default function ProjectAssetsPage({
               <AssetGrid
                 assets={assetAssets}
                 publicUrlBase={R2_PUBLIC_URL}
-                onDelete={(id) => deleteAsset.mutate({ id })}
+                onDelete={(id) => deleteAsset.mutate({ id }, { onError: (err) => toast.error(err.message ?? "Operation failed") })}
                 isDeleting={deleteAsset.isPending}
               />
             ) : (

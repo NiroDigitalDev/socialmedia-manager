@@ -4,6 +4,7 @@ import { StarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFavorites, useAddFavorite, useRemoveFavorite } from "@/hooks/use-favorites";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface FavoriteStarProps {
   targetType: "project" | "campaign" | "route";
@@ -23,9 +24,9 @@ export function FavoriteStar({ targetType, targetId }: FavoriteStarProps) {
     e.preventDefault();
     e.stopPropagation();
     if (isFavorited) {
-      removeFavorite.mutate({ targetType, targetId });
+      removeFavorite.mutate({ targetType, targetId }, { onError: (err) => toast.error(err.message ?? "Operation failed") });
     } else {
-      addFavorite.mutate({ targetType, targetId });
+      addFavorite.mutate({ targetType, targetId }, { onError: (err) => toast.error(err.message ?? "Operation failed") });
     }
   };
 

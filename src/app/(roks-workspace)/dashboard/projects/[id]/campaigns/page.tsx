@@ -29,6 +29,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/empty-state";
 import { useCampaigns, useCreateCampaign } from "@/hooks/use-campaigns";
 import { useBrandIdentities } from "@/hooks/use-brand-identities";
+import { toast } from "sonner";
 
 const statusVariant: Record<string, "secondary" | "default" | "outline"> = {
   draft: "secondary",
@@ -75,6 +76,7 @@ export default function CampaignsPage({
           setDescription("");
           setBrandIdentityId("");
         },
+        onError: (err) => toast.error(err.message ?? "Operation failed"),
       }
     );
   };

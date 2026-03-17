@@ -19,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ProjectCard } from "@/components/project-card";
 import { EmptyState } from "@/components/empty-state";
 import { useProjects, useCreateProject } from "@/hooks/use-projects";
+import { toast } from "sonner";
 
 export default function ProjectsPage() {
   const { data: projects, isLoading } = useProjects();
@@ -45,6 +46,7 @@ export default function ProjectsPage() {
           setName("");
           setDescription("");
         },
+        onError: (err) => toast.error(err.message ?? "Operation failed"),
       }
     );
   };
