@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useState, useRef } from "react";
 import {
   PaletteIcon,
   PlusIcon,
@@ -10,6 +10,8 @@ import {
   TrashIcon,
   ImageIcon,
   XIcon,
+  UploadIcon,
+  Loader2Icon,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -42,7 +44,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
+import { PageHeaderSkeleton, BrandCardSkeleton } from "@/components/skeletons";
 import {
   useBrandIdentities,
   useCreateBrandIdentity,
@@ -52,6 +56,7 @@ import {
   useAddPalette,
   useRemovePalette,
 } from "@/hooks/use-brand-identities";
+import { useUploadAsset } from "@/hooks/use-assets";
 import { toast } from "sonner";
 
 export default function BrandIdentitiesPage({
@@ -67,6 +72,10 @@ export default function BrandIdentitiesPage({
   const deleteBrand = useDeleteBrandIdentity();
   const addPalette = useAddPalette();
   const removePalette = useRemovePalette();
+  const uploadAsset = useUploadAsset();
+  const logoFileInputRef = useRef<HTMLInputElement>(null);
+
+  const R2_PUBLIC_URL = process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? "";
 
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -165,13 +174,10 @@ export default function BrandIdentitiesPage({
   if (isLoading) {
     return (
       <div className="@container/main flex flex-1 flex-col gap-6 py-4 md:py-6">
-        <div className="px-4 lg:px-6">
-          <div className="h-8 w-48 animate-pulse rounded bg-muted" />
-          <div className="mt-2 h-4 w-72 animate-pulse rounded bg-muted" />
-        </div>
+        <PageHeaderSkeleton />
         <div className="grid gap-4 px-4 lg:px-6 @xl/main:grid-cols-2 @3xl/main:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-48 animate-pulse rounded-xl bg-muted" />
+            <BrandCardSkeleton key={i} />
           ))}
         </div>
       </div>
@@ -301,9 +307,17 @@ export default function BrandIdentitiesPage({
                 </div>
               </CardHeader>
               <CardContent>
-                {/* Logo placeholder */}
-                <div className="mb-3 flex size-12 items-center justify-center rounded-lg bg-muted">
-                  <ImageIcon className="size-6 text-muted-foreground" />
+                {/* Logo */}
+                <div className="mb-3 flex size-12 items-center justify-center overflow-hidden rounded-lg bg-muted">
+                  {brand.logoR2Key ? (
+                    <img
+                      src={`${R2_PUBLIC_URL}/${brand.logoR2Key}`}
+                      alt={`${brand.name} logo`}
+                      className="size-12 object-cover"
+                    />
+                  ) : (
+                    <ImageIcon className="size-6 text-muted-foreground" />
+                  )}
                 </div>
 
                 {/* Color palette swatches */}
@@ -412,6 +426,103 @@ export default function BrandIdentitiesPage({
                   if (e.key === "Enter") handleEdit();
                 }}
               />
+            </div>
+
+            {/* Logo upload section */}
+            <div className="grid gap-2">
+              <Label>Logo</Label>
+              <div className="flex items-center gap-3">
+                <div className="flex size-16 items-center justify-center overflow-hidden rounded-lg border bg-muted">
+                  {editingBrand && (() => {
+                    const currentBrand = brands?.find((b) => b.id === editingBrand.id);
+                    if (currentBrand?.logoR2Key) {
+                      return (
+                        <img
+                          src={`${R2_PUBLIC_URL}/${currentBrand.logoR2Key}`}
+                          alt="Current logo"
+                          className="size-16 object-cover"
+                        />
+                      );
+                    }
+                    return <ImageIcon className="size-8 text-muted-foreground" />;
+                  })()}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <input
+                    ref={logoFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file || !editingBrand) return;
+                      uploadAsset.mutate(
+                        { file, category: "asset", projectId: id },
+                        {
+                          onSuccess: (data: { id: string }) => {
+                            updateBrand.mutate(
+                              { id: editingBrand.id, logoAssetId: data.id },
+                              {
+                                onSuccess: () => toast.success("Logo uploaded"),
+                                onError: (err) =>
+                                  toast.error(err.message ?? "Failed to set logo"),
+                              }
+                            );
+                          },
+                          onError: (err) =>
+                            toast.error(err.message ?? "Failed to upload logo"),
+                        }
+                      );
+                      // Reset input so the same file can be re-selected
+                      e.target.value = "";
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={uploadAsset.isPending}
+                    onClick={() => logoFileInputRef.current?.click()}
+                  >
+                    {uploadAsset.isPending ? (
+                      <>
+                        <Loader2Icon className="mr-2 size-4 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <UploadIcon className="mr-2 size-4" />
+                        Upload Logo
+                      </>
+                    )}
+                  </Button>
+                  {editingBrand &&
+                    brands?.find((b) => b.id === editingBrand.id)?.logoR2Key && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => {
+                          if (!editingBrand) return;
+                          updateBrand.mutate(
+                            { id: editingBrand.id, logoAssetId: null },
+                            {
+                              onSuccess: () => toast.success("Logo removed"),
+                              onError: (err) =>
+                                toast.error(
+                                  err.message ?? "Failed to remove logo"
+                                ),
+                            }
+                          );
+                        }}
+                      >
+                        <TrashIcon className="mr-2 size-4" />
+                        Remove Logo
+                      </Button>
+                    )}
+                </div>
+              </div>
             </div>
           </div>
           <DialogFooter>

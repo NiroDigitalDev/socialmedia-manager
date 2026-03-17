@@ -12,11 +12,32 @@ export const brandIdentityRouter = router({
       if (!project) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
       }
-      return ctx.prisma.brandIdentity.findMany({
+      const brands = await ctx.prisma.brandIdentity.findMany({
         where: { projectId: input.projectId },
         include: { palettes: true },
         orderBy: { createdAt: "desc" },
       });
+
+      // Resolve logo asset r2Keys for brands that have a logoAssetId
+      const logoAssetIds = brands
+        .map((b) => b.logoAssetId)
+        .filter((id): id is string => !!id);
+
+      let logoAssetMap: Record<string, string> = {};
+      if (logoAssetIds.length > 0) {
+        const assets = await ctx.prisma.asset.findMany({
+          where: { id: { in: logoAssetIds } },
+          select: { id: true, r2Key: true },
+        });
+        logoAssetMap = Object.fromEntries(assets.map((a) => [a.id, a.r2Key]));
+      }
+
+      return brands.map((brand) => ({
+        ...brand,
+        logoR2Key: brand.logoAssetId
+          ? logoAssetMap[brand.logoAssetId] ?? null
+          : null,
+      }));
     }),
 
   get: orgProtectedProcedure
@@ -29,7 +50,17 @@ export const brandIdentityRouter = router({
       if (!identity) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Brand identity not found" });
       }
-      return identity;
+
+      let logoR2Key: string | null = null;
+      if (identity.logoAssetId) {
+        const asset = await ctx.prisma.asset.findUnique({
+          where: { id: identity.logoAssetId },
+          select: { r2Key: true },
+        });
+        logoR2Key = asset?.r2Key ?? null;
+      }
+
+      return { ...identity, logoR2Key };
     }),
 
   create: orgProtectedProcedure
