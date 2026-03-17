@@ -10,7 +10,7 @@ import { StepOutline } from "./step-outline";
 import { StepStyleBrand } from "./step-style-brand";
 import { StepSettings } from "./step-settings";
 import { StepResults } from "./step-results";
-import { Card } from "@/components/ui/card";
+import { PreviewPanel } from "./preview-panel";
 
 const stepComponents = [
   StepPlatforms, // step 1
@@ -54,12 +54,7 @@ export function GenerateFlow({ projectId, campaignId }: GenerateFlowProps) {
       <div className="flex-1 min-w-0">
         <ActiveStep />
       </div>
-      <Card className="hidden w-80 shrink-0 p-4 @3xl/main:block">
-        <p className="text-sm text-muted-foreground">Preview</p>
-        <p className="mt-2 text-xs text-muted-foreground/50">
-          Live preview will appear here as you make selections.
-        </p>
-      </Card>
+      <PreviewPanel />
     </div>
   );
 }
