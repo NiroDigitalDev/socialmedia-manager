@@ -1,7 +1,9 @@
 "use client";
 
 import { useGenerateStore } from "@/stores/use-generate-store";
+import { useStyles } from "@/hooks/use-styles";
 import { useBrandIdentities } from "@/hooks/use-brand-identities";
+import { StyleCard } from "@/components/style-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -14,7 +16,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import { PaletteIcon } from "lucide-react";
+import Link from "next/link";
 
 export function StepStyleBrand() {
   const {
@@ -23,13 +28,16 @@ export function StepStyleBrand() {
     setBrandIdentityId,
     colorOverride,
     setColorOverride,
+    styleIds,
+    setStyleIds,
     setStep,
   } = useGenerateStore();
 
   const { data: brandIdentities, isLoading: brandsLoading } =
     useBrandIdentities(projectId);
-  const hasBrands = !!projectId && (brandIdentities?.length ?? 0) > 0;
+  const { data: styles, isLoading: stylesLoading } = useStyles();
 
+  const hasBrands = !!projectId && (brandIdentities?.length ?? 0) > 0;
   const useCustomColors = colorOverride !== null;
 
   const toggleCustomColors = () => {
@@ -38,6 +46,14 @@ export function StepStyleBrand() {
     } else {
       setColorOverride({ accent: "#6366f1", bg: "#ffffff" });
     }
+  };
+
+  const toggleStyle = (id: string) => {
+    setStyleIds(
+      styleIds.includes(id)
+        ? styleIds.filter((s) => s !== id)
+        : [...styleIds, id]
+    );
   };
 
   return (
@@ -93,24 +109,67 @@ export function StepStyleBrand() {
         </CardContent>
       </Card>
 
-      {/* Style Library */}
+      {/* Style Picker */}
       <Card>
         <CardHeader>
-          <CardTitle>Style</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-3 rounded-lg border border-dashed p-6">
-            <PaletteIcon className="size-8 text-muted-foreground/40" />
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Style library integration coming soon
-              </p>
-              <p className="text-xs text-muted-foreground/60">
-                You&apos;ll be able to pick from your saved styles or create new
-                ones.
-              </p>
+          <div className="flex items-center justify-between">
+            <CardTitle>Style</CardTitle>
+            <div className="flex items-center gap-2">
+              {styleIds.length > 0 && (
+                <Badge variant="secondary" className="text-xs">
+                  {styleIds.length} selected
+                </Badge>
+              )}
+              <Button variant="ghost" size="sm" asChild className="gap-1.5">
+                <Link href="/dashboard/styles">
+                  Manage styles
+                  <span aria-hidden>&rarr;</span>
+                </Link>
+              </Button>
             </div>
           </div>
+        </CardHeader>
+        <CardContent>
+          {stylesLoading ? (
+            <div className="grid gap-3 grid-cols-2 @lg/main:grid-cols-3 @3xl/main:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="space-y-2">
+                  <Skeleton className="aspect-square w-full rounded-xl" />
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-1/2" />
+                </div>
+              ))}
+            </div>
+          ) : styles && styles.length > 0 ? (
+            <div className="grid gap-3 grid-cols-2 @lg/main:grid-cols-3 @3xl/main:grid-cols-4">
+              {styles.map((style) => (
+                <StyleCard
+                  key={style.id}
+                  style={style}
+                  selected={styleIds.includes(style.id)}
+                  onSelect={() => toggleStyle(style.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed p-8">
+              <PaletteIcon className="size-8 text-muted-foreground/40" />
+              <div className="text-center">
+                <p className="text-sm font-medium text-muted-foreground">
+                  No styles available
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground/60">
+                  Visit the Styles page to create or load visual styles.
+                </p>
+              </div>
+              <Button variant="outline" size="sm" asChild className="gap-1.5">
+                <Link href="/dashboard/styles">
+                  <PaletteIcon className="size-3.5" />
+                  Go to Styles
+                </Link>
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
