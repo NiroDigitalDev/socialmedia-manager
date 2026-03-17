@@ -9,17 +9,16 @@ import {
 } from "@/components/ui/sidebar";
 import {
   LayoutDashboardIcon,
-  SparklesIcon,
   LibraryIcon,
   GalleryHorizontalEndIcon,
   PaintbrushIcon,
 } from "lucide-react";
+import { IconCirclePlusFilled } from "@tabler/icons-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const items = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboardIcon },
-  { title: "Generate", url: "/dashboard/generate", icon: SparklesIcon },
   { title: "Gallery", url: "/dashboard/gallery", icon: GalleryHorizontalEndIcon },
   { title: "Styles", url: "/dashboard/styles", icon: PaintbrushIcon },
   { title: "Asset Library", url: "/dashboard/assets", icon: LibraryIcon },
@@ -32,6 +31,18 @@ export function NavGlobal() {
     <SidebarGroup>
       <SidebarGroupContent>
         <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              tooltip="Quick Create"
+              className="min-w-8 bg-primary text-primary-foreground duration-200 ease-linear hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground"
+            >
+              <Link href="/dashboard/generate">
+                <IconCirclePlusFilled />
+                <span>Quick Create</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           {items.map((item) => (
             <SidebarMenuItem key={item.title}>
               <SidebarMenuButton

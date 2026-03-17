@@ -141,13 +141,7 @@ export default function CampaignsPage({
 
   return (
     <div className="@container/main flex flex-1 flex-col gap-6 py-4 md:py-6">
-      <div className="flex items-center justify-between px-4 lg:px-6">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Campaigns</h1>
-          <p className="text-sm text-muted-foreground">
-            View and manage campaigns for this project.
-          </p>
-        </div>
+      <div className="flex items-center justify-end px-4 lg:px-6">
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button>

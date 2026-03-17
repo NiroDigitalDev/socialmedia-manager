@@ -37,13 +37,6 @@ export default function AssetsPage() {
   return (
     <div className="@container/main flex flex-1 flex-col gap-4 py-4 md:py-6">
       <div className="px-4 lg:px-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Asset Library</h1>
-        <p className="text-sm text-muted-foreground">
-          Upload and manage reference materials and production assets.
-        </p>
-      </div>
-
-      <div className="px-4 lg:px-6">
         {!R2_PUBLIC_URL && (
           <div className="mb-4 rounded-lg border border-yellow-500/50 bg-yellow-500/10 p-3 text-sm text-yellow-600">
             R2 public URL not configured. Asset images won&apos;t display. Set NEXT_PUBLIC_R2_PUBLIC_URL in your environment.

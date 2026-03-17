@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { createWebPPreview } from "@/lib/image-processing";
 
 // Serves images from StoredImage or GeneratedImage tables
-// Usage: /api/images/[id]?type=stored (default) or /api/images/[id]?type=generated
+// Usage: /api/images/[id]?type=stored|generated&format=webp&w=480
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -10,6 +11,8 @@ export async function GET(
   try {
     const { id } = await params;
     const type = request.nextUrl.searchParams.get("type") || "stored";
+    const format = request.nextUrl.searchParams.get("format");
+    const width = request.nextUrl.searchParams.get("w");
 
     let data: Buffer;
     let mimeType: string;
@@ -28,6 +31,13 @@ export async function GET(
       }
       data = Buffer.from(image.data);
       mimeType = image.mimeType;
+    }
+
+    // Optimize on-the-fly: convert to WebP preview if requested
+    if (format === "webp" || width) {
+      const maxWidth = width ? parseInt(width, 10) : 480;
+      data = await createWebPPreview(data, { maxWidth });
+      mimeType = "image/webp";
     }
 
     return new NextResponse(new Uint8Array(data), {

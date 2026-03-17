@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { SparklesIcon, ArrowRightIcon, FolderIcon, PlusIcon } from "lucide-react";
-import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { ArrowRightIcon, FolderIcon, PlusIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProjectCard } from "@/components/project-card";
 import { EmptyState } from "@/components/empty-state";
@@ -23,30 +22,6 @@ export default function DashboardPage() {
 
   return (
     <div className="@container/main flex flex-1 flex-col gap-6 py-4 md:py-6">
-      {/* Quick Generate CTA */}
-      <div className="px-4 lg:px-6">
-        <Link href="/dashboard/generate">
-          <Card className="group bg-gradient-to-t from-primary/5 to-card transition-colors hover:bg-muted/50 dark:bg-card">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
-                    <SparklesIcon className="size-5 text-primary" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-base">Generate Content</CardTitle>
-                    <CardDescription>
-                      Create social media posts with AI-powered generation
-                    </CardDescription>
-                  </div>
-                </div>
-                <ArrowRightIcon className="size-5 text-muted-foreground transition-transform group-hover:translate-x-1" />
-              </div>
-            </CardHeader>
-          </Card>
-        </Link>
-      </div>
-
       {/* Projects section */}
       <div className="px-4 lg:px-6">
         <div className="flex items-center justify-between">

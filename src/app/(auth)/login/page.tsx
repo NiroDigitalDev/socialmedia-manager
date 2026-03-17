@@ -53,6 +53,20 @@ export default function LoginPage() {
       setErrorMessage(error.message || "Invalid or expired code. Please try again.");
       setOtp("");
     } else {
+      // Set the active organization before redirecting to dashboard
+      try {
+        const res = await fetch("/api/auth/organization/list", {
+          credentials: "include",
+        });
+        if (res.ok) {
+          const orgs = await res.json();
+          if (Array.isArray(orgs) && orgs.length > 0) {
+            await authClient.organization.setActive({ organizationId: orgs[0].id });
+          }
+        }
+      } catch {
+        // AppSidebar has a fallback that will set the org
+      }
       router.push("/dashboard");
     }
   };

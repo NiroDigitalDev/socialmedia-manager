@@ -30,6 +30,14 @@ const secondaryItems = [
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { data: session } = authClient.useSession()
   const { data: activeOrg } = authClient.useActiveOrganization()
+  const { data: orgs } = authClient.useListOrganizations()
+
+  // Auto-select the first org if none is active (e.g. after fresh login)
+  React.useEffect(() => {
+    if (session && !activeOrg && orgs && orgs.length > 0) {
+      authClient.organization.setActive({ organizationId: orgs[0].id })
+    }
+  }, [session, activeOrg, orgs])
 
   const user = session?.user
     ? {

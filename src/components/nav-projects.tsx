@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useRef, useEffect } from "react";
 import {
   SidebarGroup,
   SidebarGroupLabel,
@@ -8,9 +9,7 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
-  SidebarMenuSub,
-  SidebarMenuSubItem,
-  SidebarMenuSubButton,
+  SidebarMenuAction,
 } from "@/components/ui/sidebar";
 import {
   Collapsible,
@@ -18,55 +17,156 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import {
-  PlusIcon,
-  ChevronRightIcon,
-  LayoutListIcon,
-  FileTextIcon,
-  FlaskConicalIcon,
-  PaletteIcon,
-  ImageIcon,
-  SparklesIcon,
-} from "lucide-react";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { PlusIcon, MoreHorizontalIcon, SearchIcon, FolderIcon, StarIcon } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect } from "react";
-import { useProjects } from "@/hooks/use-projects";
+import { usePathname, useRouter } from "next/navigation";
+
+import { useProjects, useUpdateProject } from "@/hooks/use-projects";
+import { useFavorites, useAddFavorite, useRemoveFavorite } from "@/hooks/use-favorites";
 import { useSidebarStore } from "@/stores/use-sidebar-store";
 import { SidebarProjectSkeleton } from "@/components/skeletons";
 import { cn } from "@/lib/utils";
 
-const projectSubPages = [
-  { title: "Overview", segment: "", icon: LayoutListIcon },
-  { title: "Content", segment: "/content", icon: FileTextIcon },
-  { title: "Campaigns", segment: "/campaigns", icon: FlaskConicalIcon },
-  { title: "Brand Identities", segment: "/brands", icon: PaletteIcon },
-  { title: "Assets", segment: "/assets", icon: ImageIcon },
-  { title: "Generate", segment: "/generate", icon: SparklesIcon },
-];
+const MAX_VISIBLE = 8;
 
 function extractProjectId(pathname: string): string | null {
   const match = pathname.match(/\/dashboard\/projects\/([^/]+)/);
   return match ? match[1] : null;
 }
 
+function ProjectItem({
+  project,
+  isActive,
+}: {
+  project: { id: string; name: string };
+  isActive: boolean;
+}) {
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [name, setName] = useState(project.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const updateProject = useUpdateProject();
+  const { data: favorites } = useFavorites();
+  const addFavorite = useAddFavorite();
+  const removeFavorite = useRemoveFavorite();
+
+  const isFavorited = favorites?.some(
+    (f) => f.targetType === "project" && f.targetId === project.id
+  );
+
+  useEffect(() => {
+    setName(project.name);
+  }, [project.name]);
+
+  useEffect(() => {
+    if (isRenaming) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [isRenaming]);
+
+  const handleSubmit = () => {
+    const trimmed = name.trim();
+    if (trimmed && trimmed !== project.name) {
+      updateProject.mutate({ id: project.id, name: trimmed });
+    } else {
+      setName(project.name);
+    }
+    setIsRenaming(false);
+  };
+
+  if (isRenaming) {
+    return (
+      <SidebarMenuItem>
+        <div className="flex items-center gap-2 px-2 py-1.5">
+          <FolderIcon className="size-4 shrink-0 text-sidebar-foreground/70" />
+          <input
+            ref={inputRef}
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={handleSubmit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSubmit();
+              if (e.key === "Escape") {
+                setName(project.name);
+                setIsRenaming(false);
+              }
+            }}
+            className="min-w-0 flex-1 rounded-sm bg-sidebar-accent px-1 py-0.5 text-sm outline-none ring-1 ring-sidebar-ring"
+          />
+        </div>
+      </SidebarMenuItem>
+    );
+  }
+
+  const toggleFavorite = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isFavorited) {
+      removeFavorite.mutate({ targetType: "project", targetId: project.id });
+    } else {
+      addFavorite.mutate({ targetType: "project", targetId: project.id });
+    }
+  };
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        asChild
+        tooltip={project.name}
+        isActive={isActive}
+      >
+        <Link
+          href={`/dashboard/projects/${project.id}`}
+          onDoubleClick={(e) => {
+            e.preventDefault();
+            setIsRenaming(true);
+          }}
+        >
+          <FolderIcon className="size-4" />
+          <span className="truncate">{project.name}</span>
+        </Link>
+      </SidebarMenuButton>
+      <SidebarMenuAction
+        showOnHover={!isFavorited}
+        onClick={toggleFavorite}
+        aria-label={isFavorited ? "Remove from favorites" : "Add to favorites"}
+      >
+        <StarIcon
+          className={cn(
+            "size-4",
+            isFavorited
+              ? "fill-sidebar-foreground text-sidebar-foreground"
+              : "text-sidebar-foreground/70"
+          )}
+        />
+      </SidebarMenuAction>
+    </SidebarMenuItem>
+  );
+}
+
 export function NavProjects() {
   const pathname = usePathname();
+  const router = useRouter();
   const { data: projects, isLoading } = useProjects();
-  const {
-    expandedProjectIds,
-    projectsCollapsed,
-    toggleProject,
-    expandProject,
-    toggleProjects,
-  } = useSidebarStore();
+  const { projectsCollapsed, toggleProjects } = useSidebarStore();
 
-  // Auto-expand the active project when navigating to it
+  const [search, setSearch] = useState("");
+  const [moreOpen, setMoreOpen] = useState(false);
+
   const activeProjectId = extractProjectId(pathname);
-  useEffect(() => {
-    if (activeProjectId) {
-      expandProject(activeProjectId);
-    }
-  }, [activeProjectId, expandProject]);
+
+  const visibleProjects = projects?.slice(0, MAX_VISIBLE) ?? [];
+  const hasMore = (projects?.length ?? 0) > MAX_VISIBLE;
+
+  const filteredProjects =
+    projects?.filter((p) =>
+      p.name.toLowerCase().includes(search.toLowerCase())
+    ) ?? [];
 
   return (
     <Collapsible open={!projectsCollapsed} onOpenChange={toggleProjects}>
@@ -74,7 +174,6 @@ export function NavProjects() {
         <CollapsibleTrigger asChild>
           <SidebarGroupLabel className="cursor-pointer">
             Projects
-            <ChevronRightIcon className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-90" />
           </SidebarGroupLabel>
         </CollapsibleTrigger>
         <SidebarGroupAction asChild>
@@ -92,64 +191,76 @@ export function NavProjects() {
                   </SidebarMenuItem>
                 ))
               ) : projects && projects.length > 0 ? (
-                projects.map((project) => {
-                  const isExpanded = expandedProjectIds.has(project.id);
-                  const isActiveProject = activeProjectId === project.id;
-                  const projectBase = `/dashboard/projects/${project.id}`;
-
-                  return (
-                    <Collapsible
+                <>
+                  {visibleProjects.map((project) => (
+                    <ProjectItem
                       key={project.id}
-                      open={isExpanded}
-                      onOpenChange={() => toggleProject(project.id)}
-                    >
-                      <SidebarMenuItem>
-                        <CollapsibleTrigger asChild>
-                          <SidebarMenuButton
-                            tooltip={project.name}
-                            className={cn(
-                              isActiveProject &&
-                                "border-l-2 border-primary pl-[calc(theme(spacing.2)-2px)]"
-                            )}
-                          >
-                            <div
-                              className="size-3 shrink-0 rounded-sm"
-                              style={{
-                                backgroundColor: project.color ?? "#737373",
-                              }}
-                            />
-                            <span className="truncate">{project.name}</span>
-                            <ChevronRightIcon className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-90" />
+                      project={project}
+                      isActive={activeProjectId === project.id}
+                    />
+                  ))}
+
+                  {hasMore && (
+                    <SidebarMenuItem>
+                      <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+                        <PopoverTrigger asChild>
+                          <SidebarMenuButton tooltip="More projects">
+                            <MoreHorizontalIcon className="size-4" />
+                            <span>More</span>
                           </SidebarMenuButton>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <SidebarMenuSub>
-                            {projectSubPages.map((sub) => {
-                              const href = `${projectBase}${sub.segment}`;
-                              const isActive =
-                                sub.segment === ""
-                                  ? pathname === projectBase
-                                  : pathname.startsWith(href);
-                              return (
-                                <SidebarMenuSubItem key={sub.title}>
-                                  <SidebarMenuSubButton
-                                    asChild
-                                    isActive={isActive}
-                                  >
-                                    <Link href={href}>
-                                      <sub.icon className="size-4" />
-                                      <span>{sub.title}</span>
-                                    </Link>
-                                  </SidebarMenuSubButton>
-                                </SidebarMenuSubItem>
-                              );
-                            })}
-                          </SidebarMenuSub>
-                        </CollapsibleContent>
-                      </SidebarMenuItem>
-                    </Collapsible>
-                  );
-                })
+                        </PopoverTrigger>
+                        <PopoverContent
+                          side="right"
+                          align="start"
+                          className="w-64 p-0"
+                        >
+                          <div className="flex items-center gap-2 border-b px-3 py-2">
+                            <SearchIcon className="size-4 text-muted-foreground" />
+                            <input
+                              type="text"
+                              placeholder="Search projects…"
+                              value={search}
+                              onChange={(e) => setSearch(e.target.value)}
+                              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                              autoFocus
+                            />
+                          </div>
+                          <div className="max-h-64 overflow-y-auto p-1">
+                            {filteredProjects.length > 0 ? (
+                              filteredProjects.map((project) => (
+                                <button
+                                  key={project.id}
+                                  onClick={() => {
+                                    setMoreOpen(false);
+                                    setSearch("");
+                                    router.push(
+                                      `/dashboard/projects/${project.id}`
+                                    );
+                                  }}
+                                  className={cn(
+                                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+                                    "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                                    activeProjectId === project.id &&
+                                      "bg-sidebar-accent text-sidebar-accent-foreground"
+                                  )}
+                                >
+                                  <FolderIcon className="size-4 shrink-0" />
+                                  <span className="truncate">
+                                    {project.name}
+                                  </span>
+                                </button>
+                              ))
+                            ) : (
+                              <p className="px-2 py-4 text-center text-sm text-muted-foreground">
+                                No projects found
+                              </p>
+                            )}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    </SidebarMenuItem>
+                  )}
+                </>
               ) : (
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild>

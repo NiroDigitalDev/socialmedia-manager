@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import {
   DndContext,
   closestCenter,
@@ -21,6 +21,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   SidebarGroup,
   SidebarGroupLabel,
+  SidebarGroupAction,
   SidebarGroupContent,
   SidebarMenu,
   SidebarMenuItem,
@@ -32,18 +33,17 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   StarIcon,
   FolderIcon,
   FlaskConicalIcon,
-  ChevronRightIcon,
+  MoreHorizontalIcon,
   GripVerticalIcon,
 } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import Link from "next/link";
 import { useFavorites, useReorderFavorites } from "@/hooks/use-favorites";
 import { useProjects } from "@/hooks/use-projects";
@@ -51,14 +51,13 @@ import { useSidebarStore } from "@/stores/use-sidebar-store";
 import { useTRPC } from "@/lib/trpc/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 const iconMap: Record<string, React.ElementType> = {
   project: FolderIcon,
   campaign: FlaskConicalIcon,
   route: StarIcon,
 };
-
-// ---------- Sortable Favorite Item ----------
 
 type FavoriteItem = {
   id: string;
@@ -68,14 +67,14 @@ type FavoriteItem = {
   [key: string]: unknown;
 };
 
-function SortableFavoriteItem({
+// ---------- Sortable row inside reorder popover ----------
+
+function SortableReorderRow({
   fav,
   label,
-  href,
 }: {
   fav: FavoriteItem;
   label: string;
-  href: string;
 }) {
   const {
     attributes,
@@ -93,54 +92,42 @@ function SortableFavoriteItem({
   };
 
   const Icon = iconMap[fav.targetType] ?? StarIcon;
-  const isCampaign = fav.targetType === "campaign";
 
-  const content = (
-    <SidebarMenuItem ref={setNodeRef} style={style}>
-      <SidebarMenuButton asChild tooltip={label}>
-        <Link href={href} className="group/fav">
-          {/* Drag handle - visible on hover */}
-          <span
-            className="flex shrink-0 cursor-grab items-center opacity-0 transition-opacity group-hover/fav:opacity-100 active:cursor-grabbing"
-            {...attributes}
-            {...listeners}
-          >
-            <GripVerticalIcon className="size-3.5 text-muted-foreground" />
-          </span>
-          <Icon className="size-4" />
-          <span className="truncate">{label}</span>
-        </Link>
-      </SidebarMenuButton>
-    </SidebarMenuItem>
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+        isDragging && "bg-sidebar-accent"
+      )}
+    >
+      <span
+        className="flex shrink-0 cursor-grab items-center active:cursor-grabbing"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVerticalIcon className="size-3.5 text-muted-foreground" />
+      </span>
+      <Icon className="size-4 shrink-0" />
+      <span className="truncate">{label}</span>
+    </div>
   );
-
-  if (isCampaign) {
-    return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>{content}</TooltipTrigger>
-          <TooltipContent side="right">
-            <p>Open from project sidebar</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-  }
-
-  return content;
 }
 
-// ---------- NavFavorites ----------
+// ---------- Reorder popover ----------
 
-export function NavFavorites() {
+function ReorderPopover({
+  favorites,
+  getLabel,
+}: {
+  favorites: FavoriteItem[];
+  getLabel: (fav: FavoriteItem) => string;
+}) {
+  const [open, setOpen] = useState(false);
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const { data: favorites } = useFavorites();
-  const { data: projects } = useProjects();
   const reorder = useReorderFavorites();
-  const { favoritesCollapsed, toggleFavorites } = useSidebarStore();
-
-  const displayFavorites = favorites ?? [];
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -151,12 +138,97 @@ export function NavFavorites() {
     })
   );
 
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+
+      const oldIndex = favorites.findIndex((f) => f.id === active.id);
+      const newIndex = favorites.findIndex((f) => f.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return;
+
+      const reordered = arrayMove(favorites, oldIndex, newIndex);
+
+      queryClient.setQueryData(trpc.favorite.list.queryKey(), (old) => {
+        if (!old) return old;
+        const oldIdx = old.findIndex((f) => f.id === active.id);
+        const newIdx = old.findIndex((f) => f.id === over!.id);
+        if (oldIdx === -1 || newIdx === -1) return old;
+        const reorderedFull = arrayMove([...old], oldIdx, newIdx);
+        return reorderedFull.map((f, i) => ({ ...f, order: i }));
+      });
+
+      reorder.mutate(
+        reordered.map((f, i) => ({ id: f.id, order: i })),
+        {
+          onError: () => {
+            queryClient.invalidateQueries({
+              queryKey: trpc.favorite.list.queryKey(),
+            });
+            toast.error("Failed to reorder favorites");
+          },
+          onSettled: () => {
+            queryClient.invalidateQueries({
+              queryKey: trpc.favorite.list.queryKey(),
+            });
+          },
+        }
+      );
+    },
+    [favorites, queryClient, trpc, reorder]
+  );
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <SidebarGroupAction title="Reorder favorites">
+          <MoreHorizontalIcon />
+        </SidebarGroupAction>
+      </PopoverTrigger>
+      <PopoverContent side="right" align="start" className="w-56 p-1">
+        <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+          Drag to reorder
+        </p>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={favorites.map((f) => f.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            {favorites.map((fav) => (
+              <SortableReorderRow
+                key={fav.id}
+                fav={fav}
+                label={getLabel(fav)}
+              />
+            ))}
+          </SortableContext>
+        </DndContext>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// ---------- NavFavorites ----------
+
+export function NavFavorites() {
+  const { data: favorites } = useFavorites();
+  const { data: projects } = useProjects();
+  const { favoritesCollapsed, toggleFavorites } = useSidebarStore();
+
+  const displayFavorites = favorites ?? [];
+
   const getLabel = useCallback(
     (fav: { targetType: string; targetId: string }) => {
       if (fav.targetType === "route")
         return fav.targetId.split("/").pop() ?? fav.targetId;
       if (fav.targetType === "project") {
-        return projects?.find((p) => p.id === fav.targetId)?.name ?? "Project";
+        return (
+          projects?.find((p) => p.id === fav.targetId)?.name ?? "Project"
+        );
       }
       return "Campaign";
     },
@@ -173,57 +245,6 @@ export function NavFavorites() {
     []
   );
 
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-
-      const oldIndex = displayFavorites.findIndex(
-        (f) => f.id === active.id
-      );
-      const newIndex = displayFavorites.findIndex(
-        (f) => f.id === over.id
-      );
-      if (oldIndex === -1 || newIndex === -1) return;
-
-      const reordered = arrayMove(displayFavorites, oldIndex, newIndex);
-
-      // Optimistic update: immediately update the cache
-      queryClient.setQueryData(
-        trpc.favorite.list.queryKey(),
-        (old) => {
-          if (!old) return old;
-          const oldIdx = old.findIndex((f) => f.id === active.id);
-          const newIdx = old.findIndex((f) => f.id === over!.id);
-          if (oldIdx === -1 || newIdx === -1) return old;
-          const reorderedFull = arrayMove([...old], oldIdx, newIdx);
-          return reorderedFull.map((f, i) => ({ ...f, order: i }));
-        }
-      );
-
-      // Send new order to server
-      reorder.mutate(
-        reordered.map((f, i) => ({ id: f.id, order: i })),
-        {
-          onError: () => {
-            // Rollback: refetch from server
-            queryClient.invalidateQueries({
-              queryKey: trpc.favorite.list.queryKey(),
-            });
-            toast.error("Failed to reorder favorites");
-          },
-          onSettled: () => {
-            // Always refetch to ensure consistency
-            queryClient.invalidateQueries({
-              queryKey: trpc.favorite.list.queryKey(),
-            });
-          },
-        }
-      );
-    },
-    [displayFavorites, queryClient, trpc, reorder]
-  );
-
   if (displayFavorites.length === 0) {
     return null;
   }
@@ -234,32 +255,29 @@ export function NavFavorites() {
         <CollapsibleTrigger asChild>
           <SidebarGroupLabel className="cursor-pointer">
             Favorites
-            <ChevronRightIcon className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-90" />
           </SidebarGroupLabel>
         </CollapsibleTrigger>
+        <ReorderPopover
+          favorites={displayFavorites as FavoriteItem[]}
+          getLabel={getLabel}
+        />
         <CollapsibleContent>
           <SidebarGroupContent>
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext
-                items={displayFavorites.map((f) => f.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                <SidebarMenu>
-                  {displayFavorites.map((fav) => (
-                    <SortableFavoriteItem
-                      key={fav.id}
-                      fav={fav}
-                      label={getLabel(fav)}
-                      href={getHref(fav)}
-                    />
-                  ))}
-                </SidebarMenu>
-              </SortableContext>
-            </DndContext>
+            <SidebarMenu>
+              {displayFavorites.map((fav) => {
+                const Icon = iconMap[fav.targetType] ?? StarIcon;
+                return (
+                  <SidebarMenuItem key={fav.id}>
+                    <SidebarMenuButton asChild tooltip={getLabel(fav)}>
+                      <Link href={getHref(fav)}>
+                        <Icon className="size-4" />
+                        <span className="truncate">{getLabel(fav)}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
           </SidebarGroupContent>
         </CollapsibleContent>
       </SidebarGroup>

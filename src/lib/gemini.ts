@@ -16,6 +16,18 @@ export const geminiText = {
   },
 };
 
+// Pro model for high-quality text generation (captions, descriptions)
+export const geminiPro = {
+  async generateContent(prompt: string | Array<{ text?: string; inlineData?: { data: string; mimeType: string } }>) {
+    const contents = typeof prompt === "string" ? prompt : prompt;
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-pro-preview",
+      contents,
+    });
+    return response.text ?? "";
+  },
+};
+
 // Image generation models
 export const GEMINI_IMAGE_MODELS = {
   "nano-banana-2": "gemini-3.1-flash-image-preview",

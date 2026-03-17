@@ -1,6 +1,7 @@
 import { AppSidebar } from "@/components/app-sidebar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { SiteHeader } from "@/components/site-header"
+import { PreviewGenerationToast } from "@/components/preview-generation-toast"
 
 export default function DashboardLayout({
   children,
@@ -17,6 +18,7 @@ export default function DashboardLayout({
       }
     >
       <AppSidebar variant="inset" />
+      <PreviewGenerationToast />
       <SidebarInset>
         <SiteHeader />
         <div className="flex flex-1 flex-col">

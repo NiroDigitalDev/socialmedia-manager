@@ -142,3 +142,96 @@ export function useStyleFromImage() {
     },
   });
 }
+
+export function useRemixStyle() {
+  const trpc = useTRPC();
+  return useMutation({
+    ...trpc.style.remix.mutationOptions(),
+    onError: () => {
+      toast.error("Failed to generate style remix");
+    },
+  });
+}
+
+export function useBlendStyles() {
+  const trpc = useTRPC();
+  return useMutation({
+    ...trpc.style.blend.mutationOptions(),
+    onError: () => {
+      toast.error("Failed to blend styles");
+    },
+  });
+}
+
+export function useGenerateAllPreviews() {
+  const trpc = useTRPC();
+  return useMutation({
+    ...trpc.style.generateAllPreviews.mutationOptions(),
+    onError: () => {
+      toast.error("Failed to start preview generation");
+    },
+  });
+}
+
+export function useMigrateStylesToR2() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  return useMutation({
+    ...trpc.style.migrateToR2.mutationOptions(),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: trpc.style.list.queryKey() });
+      toast.success(data.message);
+    },
+    onError: () => {
+      toast.error("Failed to migrate styles to R2");
+    },
+  });
+}
+
+export function useGenerateCaptionPreview() {
+  const trpc = useTRPC();
+  return useMutation({
+    ...trpc.style.generateCaptionPreview.mutationOptions(),
+    onError: () => {
+      toast.error("Failed to generate caption samples");
+    },
+  });
+}
+
+export function useSaveStyleWithHistory() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  return useMutation({
+    ...trpc.style.saveWithHistory.mutationOptions(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: trpc.style.list.queryKey() });
+    },
+    onError: () => {
+      toast.error("Failed to save style");
+    },
+  });
+}
+
+export function useStyleHistory(styleId: string | undefined) {
+  const trpc = useTRPC();
+  return useQuery({
+    ...trpc.style.getHistory.queryOptions({ styleId: styleId! }),
+    enabled: !!styleId,
+  });
+}
+
+export function useRestoreStyleHistory() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  return useMutation({
+    ...trpc.style.restoreHistory.mutationOptions(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: trpc.style.list.queryKey() });
+      toast.success("Style restored from history");
+    },
+    onError: () => {
+      toast.error("Failed to restore style");
+    },
+  });
+}
+

@@ -8,8 +8,14 @@ import {
   useGenerateStylePreview,
   useSeedStyles,
   useStyleFromImage,
+  useRemixStyle,
+  useBlendStyles,
+  useGenerateAllPreviews,
+  useMigrateStylesToR2,
+  useGenerateCaptionPreview,
 } from "@/hooks/use-styles";
 import { StyleCard } from "@/components/style-card";
+import { StyleInspector } from "@/components/style-inspector";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -44,8 +50,23 @@ import {
   Loader2Icon,
   PaletteIcon,
   UploadIcon,
+  ShuffleIcon,
+  MergeIcon,
+  ImageIcon,
+  CloudIcon,
+  TypeIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+
+const PLATFORMS = [
+  { id: "all", label: "All" },
+  { id: "instagram", label: "Instagram" },
+  { id: "linkedin", label: "LinkedIn" },
+  { id: "x", label: "X" },
+  { id: "reddit", label: "Reddit" },
+  { id: "blog", label: "Blog" },
+  { id: "email", label: "Email" },
+] as const;
 
 export default function StylesPage() {
   const { data: styles, isLoading, isError } = useStyles();
@@ -54,15 +75,33 @@ export default function StylesPage() {
   const generatePreview = useGenerateStylePreview();
   const seedStyles = useSeedStyles();
   const styleFromImage = useStyleFromImage();
+  const remixStyle = useRemixStyle();
+  const blendStyles = useBlendStyles();
+  const generateAllPreviews = useGenerateAllPreviews();
+  const migrateToR2 = useMigrateStylesToR2();
+  const generateCaptionPreview = useGenerateCaptionPreview();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  // Platform filter
+  const [activePlatform, setActivePlatform] = useState("all");
+
+  // Inspector
+  const [inspectStyle, setInspectStyle] = useState<any>(null);
+  const [inspectOpen, setInspectOpen] = useState(false);
+
+  // Caption create form state
+  const [captionName, setCaptionName] = useState("");
+  const [captionDescription, setCaptionDescription] = useState("");
+  const [captionPromptText, setCaptionPromptText] = useState("");
+  const [captionSampleTexts, setCaptionSampleTexts] = useState<string[]>([]);
 
   // Create form state -- From Text tab
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newPromptText, setNewPromptText] = useState("");
-  const [previewImageIds, setPreviewImageIds] = useState<string[]>([]);
+  const [previewImageUrls, setPreviewImageUrls] = useState<string[]>([]);
 
   // Create form state -- From Image tab
   const [imgName, setImgName] = useState("");
@@ -70,27 +109,115 @@ export default function StylesPage() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
   const [analyzedPrompt, setAnalyzedPrompt] = useState("");
-  const [imgPreviewIds, setImgPreviewIds] = useState<string[]>([]);
+  const [imgPreviewUrls, setImgPreviewUrls] = useState<string[]>([]);
+
+  // Remix state
+  const [remixOpen, setRemixOpen] = useState(false);
+  const [remixName, setRemixName] = useState("");
+  const [remixDescription, setRemixDescription] = useState("");
+  const [remixPrompt, setRemixPrompt] = useState("");
+  const [remixPlatforms, setRemixPlatforms] = useState<string[]>([]);
+  const [remixParentIds, setRemixParentIds] = useState<string[]>([]);
+
+  // Blend state
+  const [blendOpen, setBlendOpen] = useState(false);
+  const [blendPickerOpen, setBlendPickerOpen] = useState(false);
+  const [blendFirstId, setBlendFirstId] = useState<string | null>(null);
+  const [blendName, setBlendName] = useState("");
+  const [blendDescription, setBlendDescription] = useState("");
+  const [blendPrompt, setBlendPrompt] = useState("");
+  const [blendPlatforms, setBlendPlatforms] = useState<string[]>([]);
+  const [blendParentIds, setBlendParentIds] = useState<string[]>([]);
 
   const hasPredefined = styles?.some((s) => s.isPredefined) ?? false;
+
+  // Filtered styles
+  const filteredStyles =
+    styles?.filter((s) =>
+      activePlatform === "all" ? true : s.platforms?.includes(activePlatform)
+    ) ?? [];
 
   const resetForm = useCallback(() => {
     setNewName("");
     setNewDescription("");
     setNewPromptText("");
-    setPreviewImageIds([]);
+    setPreviewImageUrls([]);
     setImgName("");
     setImgDescription("");
     setUploadedFile(null);
     setUploadPreview(null);
     setAnalyzedPrompt("");
-    setImgPreviewIds([]);
+    setImgPreviewUrls([]);
+    setCaptionName("");
+    setCaptionDescription("");
+    setCaptionPromptText("");
+    setCaptionSampleTexts([]);
   }, []);
+
+  const handleInspect = (style: any) => {
+    setInspectStyle(style);
+    setInspectOpen(true);
+  };
+
+  const handleGenerateCaptionPreview = () => {
+    if (!captionPromptText.trim()) {
+      toast.error("Enter a caption style prompt first");
+      return;
+    }
+    generateCaptionPreview.mutate(
+      { promptText: captionPromptText },
+      {
+        onSuccess: (data) => {
+          setCaptionSampleTexts(data.sampleTexts);
+          toast.success("Caption samples generated");
+        },
+      }
+    );
+  };
+
+  const handleSaveCaptionStyle = () => {
+    if (!captionName.trim() || !captionPromptText.trim()) {
+      toast.error("Name and prompt are required");
+      return;
+    }
+    createStyle.mutate(
+      {
+        name: captionName,
+        description: captionDescription || undefined,
+        promptText: captionPromptText,
+        kind: "caption",
+        sampleTexts: captionSampleTexts,
+        platforms: ["instagram"],
+      },
+      {
+        onSuccess: () => {
+          toast.success("Caption style created");
+          setCaptionName("");
+          setCaptionDescription("");
+          setCaptionPromptText("");
+          setCaptionSampleTexts([]);
+          setCreateOpen(false);
+        },
+        onError: (err) => toast.error(err.message ?? "Failed to create style"),
+      }
+    );
+  };
 
   const handleSeed = () => {
     seedStyles.mutate(undefined, {
       onSuccess: () => toast.success("Predefined styles loaded"),
       onError: (err) => toast.error(err.message ?? "Failed to seed styles"),
+    });
+  };
+
+  const handleGenerateAllPreviews = () => {
+    generateAllPreviews.mutate(undefined, {
+      onSuccess: (data) => {
+        if (data.queued === 0) {
+          toast.info(data.message);
+        }
+        // Toast tracking is handled by PreviewGenerationToast via server polling
+      },
     });
   };
 
@@ -103,7 +230,7 @@ export default function StylesPage() {
       { promptText: newPromptText },
       {
         onSuccess: (data) => {
-          setPreviewImageIds(data.sampleImageIds);
+          setPreviewImageUrls(data.sampleImageUrls);
           toast.success("Preview generated");
         },
         onError: (err) =>
@@ -167,7 +294,7 @@ export default function StylesPage() {
         { base64, mimeType: uploadedFile.type },
         {
           onSuccess: (data) => {
-            setImgPreviewIds(data.sampleImageIds);
+            setImgPreviewUrls(data.sampleImageUrls);
             setAnalyzedPrompt(data.promptText);
             toast.success("Image analyzed and preview generated");
           },
@@ -189,8 +316,7 @@ export default function StylesPage() {
         name: imgName,
         description: imgDescription || undefined,
         promptText:
-          analyzedPrompt ||
-          "Custom style from reference image",
+          analyzedPrompt || "Custom style from reference image",
       },
       {
         onSuccess: () => {
@@ -217,32 +343,140 @@ export default function StylesPage() {
     );
   };
 
+  // Remix handlers
+  const handleRemix = (styleId: string) => {
+    toast.info("Generating style variation...");
+    remixStyle.mutate(
+      { sourceStyleId: styleId },
+      {
+        onSuccess: (data) => {
+          setRemixName(data.name);
+          setRemixDescription(data.description ?? "");
+          setRemixPrompt(data.promptText);
+          setRemixPlatforms(data.platforms);
+          setRemixParentIds(data.parentStyleIds);
+          setRemixOpen(true);
+        },
+      }
+    );
+  };
+
+  const handleSaveRemix = () => {
+    if (!remixName.trim() || !remixPrompt.trim()) return;
+    createStyle.mutate(
+      {
+        name: remixName,
+        description: remixDescription || undefined,
+        promptText: remixPrompt,
+        platforms: remixPlatforms,
+        parentStyleIds: remixParentIds,
+      },
+      {
+        onSuccess: () => {
+          toast.success("Remixed style created");
+          setRemixOpen(false);
+        },
+        onError: (err) => toast.error(err.message ?? "Failed to save remix"),
+      }
+    );
+  };
+
+  // Blend handlers
+  const handleBlendStart = (styleId: string) => {
+    setBlendFirstId(styleId);
+    setBlendPickerOpen(true);
+  };
+
+  const handleBlendSelect = (secondId: string) => {
+    if (!blendFirstId) return;
+    setBlendPickerOpen(false);
+    toast.info("Blending styles...");
+    blendStyles.mutate(
+      { styleIdA: blendFirstId, styleIdB: secondId },
+      {
+        onSuccess: (data) => {
+          setBlendName(data.name);
+          setBlendDescription(data.description ?? "");
+          setBlendPrompt(data.promptText);
+          setBlendPlatforms(data.platforms);
+          setBlendParentIds(data.parentStyleIds);
+          setBlendOpen(true);
+        },
+      }
+    );
+  };
+
+  const handleSaveBlend = () => {
+    if (!blendName.trim() || !blendPrompt.trim()) return;
+    createStyle.mutate(
+      {
+        name: blendName,
+        description: blendDescription || undefined,
+        promptText: blendPrompt,
+        platforms: blendPlatforms,
+        parentStyleIds: blendParentIds,
+      },
+      {
+        onSuccess: () => {
+          toast.success("Blended style created");
+          setBlendOpen(false);
+        },
+        onError: (err) => toast.error(err.message ?? "Failed to save blend"),
+      }
+    );
+  };
+
   return (
     <div className="flex flex-1 flex-col gap-6 px-4 py-6 lg:px-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Styles</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage visual styles for content generation. Select styles in the
-            generate flow to influence how your posts look.
-          </p>
-        </div>
+      {/* Action buttons */}
+      <div className="flex items-center justify-end">
         <div className="flex items-center gap-2">
-          {!hasPredefined && !isLoading && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSeed}
+            disabled={seedStyles.isPending}
+            className="gap-1.5"
+          >
+            {seedStyles.isPending ? (
+              <Loader2Icon className="size-3.5 animate-spin" />
+            ) : (
+              <SparklesIcon className="size-3.5" />
+            )}
+            Sync Predefined Styles
+          </Button>
+          {styles && styles.some((s) =>
+            s.sampleImageIds.some((id) => !id.startsWith("style-previews/"))
+          ) && (
             <Button
               variant="outline"
               size="sm"
-              onClick={handleSeed}
-              disabled={seedStyles.isPending}
+              onClick={() => migrateToR2.mutate(undefined)}
+              disabled={migrateToR2.isPending}
               className="gap-1.5"
             >
-              {seedStyles.isPending ? (
+              {migrateToR2.isPending ? (
                 <Loader2Icon className="size-3.5 animate-spin" />
               ) : (
-                <SparklesIcon className="size-3.5" />
+                <CloudIcon className="size-3.5" />
               )}
-              Load Predefined Styles
+              Migrate to R2
+            </Button>
+          )}
+          {styles && styles.some((s) => s.sampleImageIds.length < 4) && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleGenerateAllPreviews}
+              disabled={generateAllPreviews.isPending}
+              className="gap-1.5"
+            >
+              {generateAllPreviews.isPending ? (
+                <Loader2Icon className="size-3.5 animate-spin" />
+              ) : (
+                <ImageIcon className="size-3.5" />
+              )}
+              Generate All Previews
             </Button>
           )}
           <Button
@@ -259,11 +493,39 @@ export default function StylesPage() {
         </div>
       </div>
 
+      {/* Platform filter tabs */}
+      {!isError && !isLoading && styles && styles.length > 0 && (
+        <div className="flex gap-1 overflow-x-auto">
+          {PLATFORMS.map((p) => {
+            const count =
+              p.id === "all"
+                ? styles.length
+                : styles.filter((s) => s.platforms?.includes(p.id)).length;
+            return (
+              <Button
+                key={p.id}
+                variant={activePlatform === p.id ? "default" : "outline"}
+                size="sm"
+                onClick={() => setActivePlatform(p.id)}
+                className="shrink-0 gap-1.5"
+              >
+                {p.label}
+                <span className="text-xs opacity-60">{count}</span>
+              </Button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Error state */}
       {isError && (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
-          <p className="text-sm text-muted-foreground">Failed to load data. Please try again.</p>
-          <Button variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+          <p className="text-sm text-muted-foreground">
+            Failed to load data. Please try again.
+          </p>
+          <Button variant="outline" onClick={() => window.location.reload()}>
+            Retry
+          </Button>
         </div>
       )}
 
@@ -332,7 +594,7 @@ export default function StylesPage() {
       {!isLoading && styles && styles.length > 0 && (
         <div className="@container/main">
           <div className="grid gap-4 grid-cols-1 @xl/main:grid-cols-2 @3xl/main:grid-cols-3 @5xl/main:grid-cols-4">
-            {styles.map((style) => (
+            {filteredStyles.map((style) => (
               <div key={style.id}>
                 {!style.isPredefined ? (
                   <AlertDialog
@@ -344,6 +606,9 @@ export default function StylesPage() {
                     <StyleCard
                       style={style}
                       onDelete={() => setDeleteId(style.id)}
+                      onRemix={() => handleRemix(style.id)}
+                      onBlend={() => handleBlendStart(style.id)}
+                      onInspect={() => handleInspect(style)}
                     />
                     <AlertDialogContent>
                       <AlertDialogHeader>
@@ -369,7 +634,12 @@ export default function StylesPage() {
                     </AlertDialogContent>
                   </AlertDialog>
                 ) : (
-                  <StyleCard style={style} />
+                  <StyleCard
+                    style={style}
+                    onRemix={() => handleRemix(style.id)}
+                    onBlend={() => handleBlendStart(style.id)}
+                    onInspect={() => handleInspect(style)}
+                  />
                 )}
               </div>
             ))}
@@ -399,6 +669,10 @@ export default function StylesPage() {
               <TabsTrigger value="text" className="flex-1 gap-1.5">
                 <PaletteIcon className="size-3.5" />
                 From Text
+              </TabsTrigger>
+              <TabsTrigger value="caption" className="flex-1 gap-1.5">
+                <TypeIcon className="size-3.5" />
+                Caption
               </TabsTrigger>
               <TabsTrigger value="image" className="flex-1 gap-1.5">
                 <UploadIcon className="size-3.5" />
@@ -444,16 +718,16 @@ export default function StylesPage() {
               </div>
 
               {/* Preview area */}
-              {previewImageIds.length > 0 && (
+              {previewImageUrls.length > 0 && (
                 <div className="space-y-2">
                   <Label className="text-xs text-muted-foreground">
                     Preview
                   </Label>
                   <div className="grid grid-cols-2 gap-2">
-                    {previewImageIds.map((imgId) => (
+                    {previewImageUrls.map((url, i) => (
                       <img
-                        key={imgId}
-                        src={`/api/images/${imgId}?type=stored`}
+                        key={i}
+                        src={url}
                         alt="Style preview"
                         className="aspect-square rounded-lg object-cover"
                       />
@@ -490,6 +764,80 @@ export default function StylesPage() {
                   {createStyle.isPending && (
                     <Loader2Icon className="size-3.5 animate-spin" />
                   )}
+                  Save Style
+                </Button>
+              </div>
+            </TabsContent>
+
+            {/* CAPTION STYLE TAB */}
+            <TabsContent value="caption" className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label htmlFor="caption-name">Name</Label>
+                <Input
+                  id="caption-name"
+                  placeholder="e.g. Professional & Concise"
+                  value={captionName}
+                  onChange={(e) => setCaptionName(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="caption-description">
+                  Description <span className="text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                  id="caption-description"
+                  placeholder="Brief description of this writing style"
+                  value={captionDescription}
+                  onChange={(e) => setCaptionDescription(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="caption-prompt">Style Prompt</Label>
+                <Textarea
+                  id="caption-prompt"
+                  placeholder="Describe the writing style: tone, structure, emoji usage, hashtag style, CTA approach..."
+                  value={captionPromptText}
+                  onChange={(e) => setCaptionPromptText(e.target.value)}
+                  rows={5}
+                  className="resize-none"
+                />
+              </div>
+
+              {captionSampleTexts.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Sample Captions</Label>
+                  <div className="space-y-2">
+                    {captionSampleTexts.map((text, i) => (
+                      <div key={i} className="rounded-lg border bg-muted/30 p-3 text-sm italic">
+                        &ldquo;{text}&rdquo;
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={handleGenerateCaptionPreview}
+                  disabled={generateCaptionPreview.isPending || !captionPromptText.trim()}
+                  className="gap-1.5"
+                >
+                  {generateCaptionPreview.isPending ? (
+                    <Loader2Icon className="size-3.5 animate-spin" />
+                  ) : (
+                    <SparklesIcon className="size-3.5" />
+                  )}
+                  Generate Samples
+                </Button>
+                <Button
+                  onClick={handleSaveCaptionStyle}
+                  disabled={createStyle.isPending || !captionName.trim() || !captionPromptText.trim()}
+                  className="gap-1.5 flex-1"
+                >
+                  {createStyle.isPending && <Loader2Icon className="size-3.5 animate-spin" />}
                   Save Style
                 </Button>
               </div>
@@ -579,16 +927,16 @@ export default function StylesPage() {
                 </div>
               )}
 
-              {imgPreviewIds.length > 0 && (
+              {imgPreviewUrls.length > 0 && (
                 <div className="space-y-2">
                   <Label className="text-xs text-muted-foreground">
                     Generated Samples
                   </Label>
                   <div className="grid grid-cols-2 gap-2">
-                    {imgPreviewIds.map((imgId) => (
+                    {imgPreviewUrls.map((url, i) => (
                       <img
-                        key={imgId}
-                        src={`/api/images/${imgId}?type=stored`}
+                        key={i}
+                        src={url}
                         alt="Sample"
                         className="aspect-square rounded-lg object-cover"
                       />
@@ -626,6 +974,167 @@ export default function StylesPage() {
           </Tabs>
         </DialogContent>
       </Dialog>
+
+      {/* Remix Style Dialog */}
+      <Dialog open={remixOpen} onOpenChange={setRemixOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShuffleIcon className="size-4" />
+              Remix Style
+            </DialogTitle>
+            <DialogDescription>
+              AI generated a variation. Edit before saving.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input
+                value={remixName}
+                onChange={(e) => setRemixName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>
+                Description{" "}
+                <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <Input
+                value={remixDescription}
+                onChange={(e) => setRemixDescription(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Style Prompt</Label>
+              <Textarea
+                value={remixPrompt}
+                onChange={(e) => setRemixPrompt(e.target.value)}
+                rows={5}
+                className="resize-none"
+              />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" onClick={() => setRemixOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveRemix}
+                disabled={
+                  createStyle.isPending ||
+                  !remixName.trim() ||
+                  !remixPrompt.trim()
+                }
+                className="flex-1 gap-1.5"
+              >
+                {createStyle.isPending && (
+                  <Loader2Icon className="size-3.5 animate-spin" />
+                )}
+                Save Remix
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Blend Picker Dialog */}
+      <Dialog open={blendPickerOpen} onOpenChange={setBlendPickerOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MergeIcon className="size-4" />
+              Choose Second Style to Blend
+            </DialogTitle>
+            <DialogDescription>
+              Select a style to blend with &ldquo;
+              {styles?.find((s) => s.id === blendFirstId)?.name}&rdquo;.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 overflow-y-auto max-h-[50vh] mt-2">
+            {styles
+              ?.filter((s) => s.id !== blendFirstId)
+              .map((s) => (
+                <StyleCard
+                  key={s.id}
+                  style={s}
+                  onSelect={() => handleBlendSelect(s.id)}
+                />
+              ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Blend Style Dialog */}
+      <Dialog open={blendOpen} onOpenChange={setBlendOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MergeIcon className="size-4" />
+              Blend Styles
+            </DialogTitle>
+            <DialogDescription>
+              AI blended both styles. Edit before saving.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input
+                value={blendName}
+                onChange={(e) => setBlendName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>
+                Description{" "}
+                <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <Input
+                value={blendDescription}
+                onChange={(e) => setBlendDescription(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Style Prompt</Label>
+              <Textarea
+                value={blendPrompt}
+                onChange={(e) => setBlendPrompt(e.target.value)}
+                rows={5}
+                className="resize-none"
+              />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" onClick={() => setBlendOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveBlend}
+                disabled={
+                  createStyle.isPending ||
+                  !blendName.trim() ||
+                  !blendPrompt.trim()
+                }
+                className="flex-1 gap-1.5"
+              >
+                {createStyle.isPending && (
+                  <Loader2Icon className="size-3.5 animate-spin" />
+                )}
+                Save Blend
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Style Inspector */}
+      <StyleInspector
+        style={inspectStyle}
+        open={inspectOpen}
+        onOpenChange={(open) => {
+          setInspectOpen(open);
+          if (!open) setInspectStyle(null);
+        }}
+      />
     </div>
   );
 }

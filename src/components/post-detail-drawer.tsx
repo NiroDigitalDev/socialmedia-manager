@@ -46,8 +46,14 @@ import {
 } from "@/hooks/use-generations";
 import type { PostCardData } from "./post-card";
 
+/** Full-size image (for main viewer) */
 function imgUrl(id: string) {
   return `/api/images/${id}?type=generated`;
+}
+
+/** Optimized WebP thumbnail */
+function thumbUrl(id: string) {
+  return `/api/images/${id}?type=generated&format=webp&w=120`;
 }
 
 interface PostDetailDrawerProps {
@@ -231,7 +237,7 @@ export function PostDetailDrawer({
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={imgUrl(img.id)}
+                        src={thumbUrl(img.id)}
                         alt={`Slide ${idx + 1}`}
                         className="h-16 w-12 object-cover"
                         loading="lazy"

@@ -24,7 +24,7 @@ const platformIcons: Record<string, React.ElementType> = {
 };
 
 function imgUrl(id: string) {
-  return `/api/images/${id}?type=generated`;
+  return `/api/images/${id}?type=generated&format=webp&w=480`;
 }
 
 export interface PostCardData {

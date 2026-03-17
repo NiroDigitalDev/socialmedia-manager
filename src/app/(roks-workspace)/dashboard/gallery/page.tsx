@@ -80,21 +80,14 @@ export default function GalleryPage() {
 
   return (
     <div className="@container/main flex flex-1 flex-col gap-6 py-4 md:py-6">
-      {/* Page Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 px-4 lg:px-6">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Gallery</h1>
-          <p className="text-sm text-muted-foreground">
-            Browse and manage all generated content.
-          </p>
-        </div>
-        {posts && (
+      {posts && (
+        <div className="px-4 lg:px-6">
           <span className="text-sm text-muted-foreground">
             {posts.length} post{posts.length !== 1 ? "s" : ""}
             {data && data.total > posts.length && ` of ${data.total}`}
           </span>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Filter Bar */}
       <div className="flex flex-wrap items-center gap-3 px-4 lg:px-6">

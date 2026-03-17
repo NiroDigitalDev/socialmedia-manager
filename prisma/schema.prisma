@@ -134,11 +134,26 @@ model Style {
   referenceImageId String?
   sampleImageIds   String[]
   isPredefined     Boolean         @default(false)
+  platforms        String[]        @default([])
+  parentStyleIds   String[]        @default([])
+  kind             String          @default("image")
+  sampleTexts      String[]        @default([])
   orgId            String?
   createdAt        DateTime        @default(now())
   posts            GeneratedPost[]
 
   @@index([orgId])
+}
+
+model StyleHistory {
+  id             String   @id @default(cuid())
+  styleId        String
+  promptText     String
+  sampleImageIds String[] @default([])
+  sampleTexts    String[] @default([])
+  createdAt      DateTime @default(now())
+
+  @@index([styleId])
 }
 
 model ContentSource {

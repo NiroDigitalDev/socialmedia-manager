@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { useTRPC } from "@/lib/trpc/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -19,13 +19,6 @@ export default function SettingsPage() {
   const { data: session } = authClient.useSession();
   const { data: activeOrg } = authClient.useActiveOrganization();
 
-  // Auto-select the first org if none is active
-  const { data: orgs } = authClient.useListOrganizations();
-  useEffect(() => {
-    if (!activeOrg && orgs && orgs.length > 0) {
-      authClient.organization.setActive({ organizationId: orgs[0].id });
-    }
-  }, [activeOrg, orgs]);
 
   // Profile state
   const [name, setName] = useState("");

@@ -14,7 +14,6 @@ import {
   FlaskConicalIcon,
   PaletteIcon,
   ImageIcon,
-  SparklesIcon,
   XIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -29,7 +28,6 @@ const subPages = [
   { title: "Campaigns", segment: "/campaigns", icon: FlaskConicalIcon },
   { title: "Brand Identities", segment: "/brands", icon: PaletteIcon },
   { title: "Assets", segment: "/assets", icon: ImageIcon },
-  { title: "Generate", segment: "/generate", icon: SparklesIcon },
 ];
 
 function extractProjectId(pathname: string): string | null {
@@ -59,10 +57,6 @@ export function NavActiveProject() {
           <Skeleton className="h-4 w-24" />
         ) : (
           <>
-            <span
-              className="size-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: project?.color ?? "#737373" }}
-            />
             <span className="truncate">{project?.name ?? "Project"}</span>
           </>
         )}

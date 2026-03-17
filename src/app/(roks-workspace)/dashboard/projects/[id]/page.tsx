@@ -98,30 +98,19 @@ export default function ProjectOverviewPage({
 
   return (
     <div className="@container/main flex flex-1 flex-col gap-6 py-4 md:py-6">
-      {/* Header */}
-      <div className="px-4 lg:px-6">
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{project.name}</h1>
-            {project.description && (
-              <p className="mt-1 text-sm text-muted-foreground">{project.description}</p>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button asChild variant="outline">
-              <Link href={`/dashboard/projects/${id}/campaigns?create=true`}>
-                <PlusIcon className="mr-2 size-4" />
-                New Campaign
-              </Link>
-            </Button>
-            <Button asChild>
-              <Link href={`/dashboard/projects/${id}/generate`}>
-                <SparklesIcon className="mr-2 size-4" />
-                Generate
-              </Link>
-            </Button>
-          </div>
-        </div>
+      <div className="flex items-center justify-end gap-2 px-4 lg:px-6">
+        <Button asChild variant="outline">
+          <Link href={`/dashboard/projects/${id}/campaigns?create=true`}>
+            <PlusIcon className="mr-2 size-4" />
+            New Campaign
+          </Link>
+        </Button>
+        <Button asChild>
+          <Link href={`/dashboard/projects/${id}/generate`}>
+            <SparklesIcon className="mr-2 size-4" />
+            Generate
+          </Link>
+        </Button>
       </div>
 
       {/* Summary cards */}

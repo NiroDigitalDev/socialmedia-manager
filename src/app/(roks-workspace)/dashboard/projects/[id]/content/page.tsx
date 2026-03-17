@@ -68,13 +68,6 @@ export default function ContentPage({
 
   return (
     <div className="@container/main flex flex-1 flex-col gap-6 py-4 md:py-6">
-      <div className="px-4 lg:px-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Content</h1>
-        <p className="text-sm text-muted-foreground">
-          Manage content sources and ideas for this project.
-        </p>
-      </div>
-
       <Tabs defaultValue="sources" className="px-4 lg:px-6">
         <TabsList>
           <TabsTrigger value="sources">Sources</TabsTrigger>

@@ -517,7 +517,7 @@ function ResultCard({
       <Card className="overflow-hidden bg-gradient-to-t from-primary/5 to-card dark:bg-card">
         <div className="relative aspect-square overflow-hidden">
           <img
-            src={`/api/images/${result.images[0].id}?type=generated`}
+            src={`/api/images/${result.images[0].id}?type=generated&format=webp&w=480`}
             alt={result.description ?? "Generated image"}
             className="size-full object-cover"
             loading="lazy"

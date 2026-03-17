@@ -35,7 +35,7 @@ export function FavoriteStar({ targetType, targetId }: FavoriteStarProps) {
       <StarIcon
         className={cn(
           "size-4",
-          isFavorited ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground"
+          isFavorited ? "fill-sidebar-foreground text-sidebar-foreground" : "text-muted-foreground"
         )}
       />
     </Button>
