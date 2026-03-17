@@ -1,14 +1,25 @@
 "use client";
 
 import { useGenerateStore, type Platform } from "@/stores/use-generate-store";
+import { useGenerate } from "@/hooks/use-generations";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
-import { SparklesIcon, ZapIcon, CrownIcon } from "lucide-react";
+import {
+  SparklesIcon,
+  ZapIcon,
+  CrownIcon,
+  Loader2Icon,
+} from "lucide-react";
 import { toast } from "sonner";
 
 const platformLabels: Record<Platform, string> = {
@@ -58,22 +69,69 @@ const aspectRatios = [
 
 const variationOptions = [1, 2, 3, 4, 6];
 
+// Map UI model names to server model keys
+const modelKeyMap: Record<string, string> = {
+  flash: "nano-banana-2",
+  pro: "nano-banana-pro",
+};
+
 export function StepSettings() {
   const {
     platforms,
     content,
+    outline,
+    styleIds,
+    brandIdentityId,
+    colorOverride,
     settings,
     updateSettings,
+    projectId,
+    campaignId,
     setStep,
     setGenerationId,
   } = useGenerateStore();
 
+  const generate = useGenerate();
+
   const handleGenerate = () => {
-    setGenerationId(`gen-${Date.now()}`);
-    setStep(6);
-    toast.success("Generation started", {
-      description: "Your content is being generated. This may take a moment.",
-    });
+    generate.mutate(
+      {
+        prompt: content.prompt,
+        platforms,
+        styleIds,
+        brandIdentityId: brandIdentityId ?? undefined,
+        colorOverride: colorOverride ?? undefined,
+        formatPerPlatform: settings.formatPerPlatform as Record<
+          string,
+          "static" | "carousel" | "text"
+        >,
+        aspectRatioPerPlatform: settings.aspectRatioPerPlatform as Record<
+          string,
+          "3:4" | "1:1" | "4:5" | "9:16"
+        >,
+        model: (modelKeyMap[settings.model] ?? "nano-banana-2") as
+          | "nano-banana-2"
+          | "nano-banana-pro",
+        variations: settings.variations,
+        includeLogo: settings.includeLogo,
+        outline: outline ?? undefined,
+        projectId: projectId ?? undefined,
+        campaignId: campaignId ?? undefined,
+      },
+      {
+        onSuccess: (data) => {
+          setGenerationId(data.postIds.join(","));
+          setStep(6);
+          toast.success("Generation started", {
+            description:
+              "Your content is being generated. Results will appear shortly.",
+          });
+        },
+        onError: (err) => {
+          toast.error(err.message ?? "Generation failed. Please try again.");
+        },
+      }
+    );
   };
 
   const estimatedOutputs = platforms.length * settings.variations;
@@ -91,12 +149,12 @@ export function StepSettings() {
         </p>
       </div>
 
-      {/* Summary */}
-      <Card>
+      {/* Generation Summary */}
+      <Card className="bg-gradient-to-t from-primary/5 to-card dark:bg-card">
         <CardHeader>
           <CardTitle>Summary</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2">
+        <CardContent className="space-y-3">
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Platforms:</span>
             <div className="flex gap-1 flex-wrap">
@@ -111,6 +169,23 @@ export function StepSettings() {
             <span className="text-sm text-muted-foreground">Content:</span>
             <p className="text-sm mt-0.5 line-clamp-2">{content.prompt}</p>
           </div>
+          {styleIds.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Styles:</span>
+              <Badge variant="secondary">
+                {styleIds.length} style{styleIds.length !== 1 ? "s" : ""}{" "}
+                selected
+              </Badge>
+            </div>
+          )}
+          {outline && outline.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Outline:</span>
+              <Badge variant="secondary">
+                {outline.length} sections across {platforms.length} platforms
+              </Badge>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -286,10 +361,15 @@ export function StepSettings() {
         <Button
           onClick={handleGenerate}
           size="lg"
+          disabled={generate.isPending}
           className={cn("gap-2 flex-1 @lg/main:flex-none")}
         >
-          <SparklesIcon className="size-4" />
-          Generate
+          {generate.isPending ? (
+            <Loader2Icon className="size-4 animate-spin" />
+          ) : (
+            <SparklesIcon className="size-4" />
+          )}
+          {generate.isPending ? "Generating..." : "Generate"}
         </Button>
       </div>
     </div>
