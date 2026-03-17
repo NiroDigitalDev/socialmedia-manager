@@ -1,15 +1,24 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
 import {
   SparklesIcon,
   ArrowLeftIcon,
   FileTextIcon,
+  PencilIcon,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -17,8 +26,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/empty-state";
 import { useCampaign, useUpdateCampaign } from "@/hooks/use-campaigns";
+import { useBrandIdentities } from "@/hooks/use-brand-identities";
 import { useIdeas } from "@/hooks/use-content";
 import { toast } from "sonner";
 
@@ -40,6 +53,13 @@ export default function CampaignDetailPage({
   const { data: campaign, isLoading } = useCampaign(campaignId);
   const updateCampaign = useUpdateCampaign();
   const { data: ideas } = useIdeas({ projectId: id });
+  const { data: brands } = useBrandIdentities(id);
+
+  // Edit dialog state
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editBrandId, setEditBrandId] = useState<string>("");
 
   // Filter ideas assigned to this campaign
   const assignedIdeas = ideas?.filter((i) => i.campaignId === campaignId) ?? [];
@@ -52,6 +72,33 @@ export default function CampaignDetailPage({
       },
       {
         onError: (err) => toast.error(err.message ?? "Operation failed"),
+      }
+    );
+  };
+
+  const openEditDialog = () => {
+    if (!campaign) return;
+    setEditName(campaign.name);
+    setEditDescription(campaign.description ?? "");
+    setEditBrandId(campaign.brandIdentity?.id ?? "none");
+    setShowEditDialog(true);
+  };
+
+  const handleEdit = () => {
+    if (!editName.trim()) return;
+    updateCampaign.mutate(
+      {
+        id: campaignId,
+        name: editName.trim(),
+        description: editDescription.trim() || undefined,
+        brandIdentityId: editBrandId === "none" ? null : editBrandId || null,
+      },
+      {
+        onSuccess: () => {
+          setShowEditDialog(false);
+          toast.success("Campaign updated");
+        },
+        onError: (err) => toast.error(err.message ?? "Failed to update campaign"),
       }
     );
   };
@@ -104,6 +151,14 @@ export default function CampaignDetailPage({
               >
                 {campaign.status}
               </Badge>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="size-8 p-0"
+                onClick={openEditDialog}
+              >
+                <PencilIcon className="size-4" />
+              </Button>
             </div>
             {campaign.description && (
               <p className="mt-1 text-sm text-muted-foreground">
@@ -222,6 +277,64 @@ export default function CampaignDetailPage({
           className="py-12"
         />
       </div>
+
+      {/* Edit Campaign Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Campaign</DialogTitle>
+            <DialogDescription>
+              Update the campaign name, description, and brand identity.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="edit-campaign-name">Name</Label>
+              <Input
+                id="edit-campaign-name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleEdit();
+                }}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="edit-campaign-description">Description</Label>
+              <Textarea
+                id="edit-campaign-description"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                rows={3}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="edit-campaign-brand">Brand Identity</Label>
+              <Select value={editBrandId} onValueChange={setEditBrandId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a brand identity" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {brands?.map((brand) => (
+                    <SelectItem key={brand.id} value={brand.id}>
+                      {brand.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={handleEdit}
+              disabled={!editName.trim() || updateCampaign.isPending}
+            >
+              {updateCampaign.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

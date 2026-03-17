@@ -29,6 +29,7 @@ export default function ProjectsPage() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [color, setColor] = useState("#737373");
 
   useEffect(() => {
     if (searchParams.get("create") === "true") {
@@ -39,12 +40,13 @@ export default function ProjectsPage() {
   const handleCreate = () => {
     if (!name.trim()) return;
     createProject.mutate(
-      { name: name.trim(), description: description.trim() || undefined },
+      { name: name.trim(), description: description.trim() || undefined, color },
       {
         onSuccess: () => {
           setOpen(false);
           setName("");
           setDescription("");
+          setColor("#737373");
         },
         onError: (err) => toast.error(err.message ?? "Operation failed"),
       }
@@ -96,6 +98,19 @@ export default function ProjectsPage() {
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}
                 />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="project-color">Color</Label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    id="project-color"
+                    value={color}
+                    onChange={(e) => setColor(e.target.value)}
+                    className="h-9 w-12 cursor-pointer rounded border bg-transparent"
+                  />
+                  <span className="text-sm text-muted-foreground">{color}</span>
+                </div>
               </div>
             </div>
             <DialogFooter>

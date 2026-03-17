@@ -21,6 +21,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -87,6 +97,8 @@ function SourcesTab({ projectId }: { projectId: string }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [rawText, setRawText] = useState("");
+  const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null);
+  const [deletingSourceTitle, setDeletingSourceTitle] = useState("");
 
   const handleCreate = () => {
     if (!title.trim() || !rawText.trim()) return;
@@ -191,7 +203,10 @@ function SourcesTab({ projectId }: { projectId: string }) {
                   variant="ghost"
                   size="sm"
                   className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => deleteSource.mutate({ id: source.id }, { onError: (err) => toast.error(err.message ?? "Operation failed") })}
+                  onClick={() => {
+                    setDeletingSourceId(source.id);
+                    setDeletingSourceTitle(source.title);
+                  }}
                   disabled={deleteSource.isPending}
                 >
                   <TrashIcon className="size-4" />
@@ -213,6 +228,40 @@ function SourcesTab({ projectId }: { projectId: string }) {
           }
         />
       )}
+
+      {/* Delete Source Confirmation */}
+      <AlertDialog open={!!deletingSourceId} onOpenChange={(open) => { if (!open) setDeletingSourceId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete content source?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete &ldquo;{deletingSourceTitle}&rdquo; and all generated
+              ideas from this source. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (!deletingSourceId) return;
+                deleteSource.mutate(
+                  { id: deletingSourceId },
+                  {
+                    onSuccess: () => {
+                      setDeletingSourceId(null);
+                      toast.success("Content source deleted");
+                    },
+                    onError: (err) => toast.error(err.message ?? "Operation failed"),
+                  }
+                );
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

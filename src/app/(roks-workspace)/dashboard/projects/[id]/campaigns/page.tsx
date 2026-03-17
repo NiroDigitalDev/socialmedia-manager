@@ -3,7 +3,7 @@
 import { use, useState, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { MegaphoneIcon, PlusIcon } from "lucide-react";
+import { MegaphoneIcon, PlusIcon, MoreHorizontalIcon, TrashIcon } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,22 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -27,7 +43,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/empty-state";
-import { useCampaigns, useCreateCampaign } from "@/hooks/use-campaigns";
+import { useCampaigns, useCreateCampaign, useDeleteCampaign } from "@/hooks/use-campaigns";
 import { useBrandIdentities } from "@/hooks/use-brand-identities";
 import { toast } from "sonner";
 
@@ -48,11 +64,16 @@ export default function CampaignsPage({
   const { data: campaigns, isLoading } = useCampaigns(id);
   const { data: brands } = useBrandIdentities(id);
   const createCampaign = useCreateCampaign();
+  const deleteCampaign = useDeleteCampaign();
 
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [brandIdentityId, setBrandIdentityId] = useState<string>("");
+
+  // Delete dialog state
+  const [deletingCampaignId, setDeletingCampaignId] = useState<string | null>(null);
+  const [deletingCampaignName, setDeletingCampaignName] = useState("");
 
   useEffect(() => {
     if (searchParams.get("create") === "true") {
@@ -77,6 +98,20 @@ export default function CampaignsPage({
           setBrandIdentityId("");
         },
         onError: (err) => toast.error(err.message ?? "Operation failed"),
+      }
+    );
+  };
+
+  const handleDelete = () => {
+    if (!deletingCampaignId) return;
+    deleteCampaign.mutate(
+      { id: deletingCampaignId },
+      {
+        onSuccess: () => {
+          setDeletingCampaignId(null);
+          toast.success("Campaign deleted");
+        },
+        onError: (err) => toast.error(err.message ?? "Failed to delete campaign"),
       }
     );
   };
@@ -178,48 +213,79 @@ export default function CampaignsPage({
       {campaigns && campaigns.length > 0 ? (
         <div className="grid gap-4 px-4 lg:px-6 @xl/main:grid-cols-2 @3xl/main:grid-cols-3">
           {campaigns.map((campaign) => (
-            <Link
-              key={campaign.id}
-              href={`/dashboard/projects/${id}/campaigns/${campaign.id}`}
-            >
-              <Card className="bg-gradient-to-t from-primary/5 to-card transition-colors hover:bg-muted/50 dark:bg-card">
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <CardTitle className="line-clamp-1 text-base">
-                      {campaign.name}
-                    </CardTitle>
-                    <Badge
-                      variant={statusVariant[campaign.status] ?? "secondary"}
-                      className={
-                        campaign.status === "archived" ? "opacity-60" : ""
-                      }
-                    >
-                      {campaign.status}
-                    </Badge>
-                  </div>
-                  {campaign.description && (
-                    <CardDescription className="line-clamp-2">
-                      {campaign.description}
-                    </CardDescription>
-                  )}
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-2">
-                    <Badge variant="outline" className="tabular-nums">
-                      {campaign._count.posts} posts
-                    </Badge>
-                    <Badge variant="outline" className="tabular-nums">
-                      {campaign._count.contentIdeas} ideas
-                    </Badge>
-                    {campaign.brandIdentity && (
-                      <Badge variant="secondary">
-                        {campaign.brandIdentity.name}
-                      </Badge>
+            <div key={campaign.id} className="relative">
+              <Link
+                href={`/dashboard/projects/${id}/campaigns/${campaign.id}`}
+              >
+                <Card className="bg-gradient-to-t from-primary/5 to-card transition-colors hover:bg-muted/50 dark:bg-card">
+                  <CardHeader>
+                    <div className="flex items-start justify-between">
+                      <CardTitle className="line-clamp-1 text-base">
+                        {campaign.name}
+                      </CardTitle>
+                      <div className="flex items-center gap-1">
+                        <Badge
+                          variant={statusVariant[campaign.status] ?? "secondary"}
+                          className={
+                            campaign.status === "archived" ? "opacity-60" : ""
+                          }
+                        >
+                          {campaign.status}
+                        </Badge>
+                      </div>
+                    </div>
+                    {campaign.description && (
+                      <CardDescription className="line-clamp-2">
+                        {campaign.description}
+                      </CardDescription>
                     )}
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline" className="tabular-nums">
+                        {campaign._count.posts} posts
+                      </Badge>
+                      <Badge variant="outline" className="tabular-nums">
+                        {campaign._count.contentIdeas} ideas
+                      </Badge>
+                      {campaign.brandIdentity && (
+                        <Badge variant="secondary">
+                          {campaign.brandIdentity.name}
+                        </Badge>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+              {/* Dropdown in top-right corner, above Link */}
+              <div className="absolute right-3 top-3 z-10">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="size-7 p-0"
+                      onClick={(e) => e.preventDefault()}
+                    >
+                      <MoreHorizontalIcon className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setDeletingCampaignId(campaign.id);
+                        setDeletingCampaignName(campaign.name);
+                      }}
+                    >
+                      <TrashIcon className="mr-2 size-4" />
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
           ))}
         </div>
       ) : (
@@ -235,6 +301,25 @@ export default function CampaignsPage({
           }
         />
       )}
+
+      {/* Delete Campaign Confirmation */}
+      <AlertDialog open={!!deletingCampaignId} onOpenChange={(open) => { if (!open) setDeletingCampaignId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete campaign?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete &ldquo;{deletingCampaignName}&rdquo; and all its posts
+              and ideas. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleDelete}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -9,6 +9,7 @@ import {
   PencilIcon,
   TrashIcon,
   ImageIcon,
+  XIcon,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -29,14 +30,27 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EmptyState } from "@/components/empty-state";
 import {
   useBrandIdentities,
   useCreateBrandIdentity,
+  useUpdateBrandIdentity,
   useDuplicateBrandIdentity,
   useDeleteBrandIdentity,
+  useAddPalette,
+  useRemovePalette,
 } from "@/hooks/use-brand-identities";
 import { toast } from "sonner";
 
@@ -48,12 +62,31 @@ export default function BrandIdentitiesPage({
   const { id } = use(params);
   const { data: brands, isLoading } = useBrandIdentities(id);
   const createBrand = useCreateBrandIdentity();
+  const updateBrand = useUpdateBrandIdentity();
   const duplicateBrand = useDuplicateBrandIdentity();
   const deleteBrand = useDeleteBrandIdentity();
+  const addPalette = useAddPalette();
+  const removePalette = useRemovePalette();
 
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [tagline, setTagline] = useState("");
+
+  // Edit dialog state
+  const [editingBrand, setEditingBrand] = useState<{ id: string; name: string; tagline: string } | null>(null);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editTagline, setEditTagline] = useState("");
+
+  // Delete dialog state
+  const [deletingBrandId, setDeletingBrandId] = useState<string | null>(null);
+  const [deletingBrandName, setDeletingBrandName] = useState("");
+
+  // Palette dialog state
+  const [paletteDialogBrandId, setPaletteDialogBrandId] = useState<string | null>(null);
+  const [paletteName, setPaletteName] = useState("");
+  const [paletteAccent, setPaletteAccent] = useState("#6366f1");
+  const [paletteBg, setPaletteBg] = useState("#ffffff");
 
   const handleCreate = () => {
     if (!name.trim()) return;
@@ -70,6 +103,61 @@ export default function BrandIdentitiesPage({
           setTagline("");
         },
         onError: (err) => toast.error(err.message ?? "Operation failed"),
+      }
+    );
+  };
+
+  const handleEdit = () => {
+    if (!editingBrand || !editName.trim()) return;
+    updateBrand.mutate(
+      {
+        id: editingBrand.id,
+        name: editName.trim(),
+        tagline: editTagline.trim() || undefined,
+      },
+      {
+        onSuccess: () => {
+          setShowEditDialog(false);
+          setEditingBrand(null);
+          toast.success("Brand identity updated");
+        },
+        onError: (err) => toast.error(err.message ?? "Failed to update brand identity"),
+      }
+    );
+  };
+
+  const handleDelete = () => {
+    if (!deletingBrandId) return;
+    deleteBrand.mutate(
+      { id: deletingBrandId },
+      {
+        onSuccess: () => {
+          setDeletingBrandId(null);
+          toast.success("Brand identity deleted");
+        },
+        onError: (err) => toast.error(err.message ?? "Failed to delete brand identity"),
+      }
+    );
+  };
+
+  const handleAddPalette = () => {
+    if (!paletteDialogBrandId || !paletteName.trim()) return;
+    addPalette.mutate(
+      {
+        brandIdentityId: paletteDialogBrandId,
+        name: paletteName.trim(),
+        accentColor: paletteAccent,
+        bgColor: paletteBg,
+      },
+      {
+        onSuccess: () => {
+          setPaletteDialogBrandId(null);
+          setPaletteName("");
+          setPaletteAccent("#6366f1");
+          setPaletteBg("#ffffff");
+          toast.success("Palette added");
+        },
+        onError: (err) => toast.error(err.message ?? "Failed to add palette"),
       }
     );
   };
@@ -180,7 +268,14 @@ export default function BrandIdentitiesPage({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem disabled>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setEditingBrand({ id: brand.id, name: brand.name, tagline: brand.tagline ?? "" });
+                          setEditName(brand.name);
+                          setEditTagline(brand.tagline ?? "");
+                          setShowEditDialog(true);
+                        }}
+                      >
                         <PencilIcon className="mr-2 size-4" />
                         Edit
                       </DropdownMenuItem>
@@ -193,7 +288,10 @@ export default function BrandIdentitiesPage({
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
                         variant="destructive"
-                        onClick={() => deleteBrand.mutate({ id: brand.id }, { onError: (err) => toast.error(err.message ?? "Operation failed") })}
+                        onClick={() => {
+                          setDeletingBrandId(brand.id);
+                          setDeletingBrandName(brand.name);
+                        }}
                       >
                         <TrashIcon className="mr-2 size-4" />
                         Delete
@@ -212,20 +310,33 @@ export default function BrandIdentitiesPage({
                 {brand.palettes.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
                     {brand.palettes.map((palette) => (
-                      <div key={palette.id} className="flex items-center gap-1.5">
+                      <div key={palette.id} className="group/palette flex items-center gap-1.5">
                         <div
                           className="size-5 rounded-full border"
                           style={{ backgroundColor: palette.accentColor }}
-                          title={`${palette.name} — accent`}
+                          title={`${palette.name} -- accent`}
                         />
                         <div
                           className="size-5 rounded-full border"
                           style={{ backgroundColor: palette.bgColor }}
-                          title={`${palette.name} — background`}
+                          title={`${palette.name} -- background`}
                         />
                         <span className="text-xs text-muted-foreground">
                           {palette.name}
                         </span>
+                        <button
+                          type="button"
+                          className="ml-0.5 hidden size-4 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive group-hover/palette:inline-flex"
+                          onClick={() =>
+                            removePalette.mutate(
+                              { paletteId: palette.id },
+                              { onError: (err) => toast.error(err.message ?? "Failed to remove palette") }
+                            )
+                          }
+                          title="Remove palette"
+                        >
+                          <XIcon className="size-3" />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -235,10 +346,23 @@ export default function BrandIdentitiesPage({
                   </p>
                 )}
               </CardContent>
-              <CardFooter>
+              <CardFooter className="justify-between">
                 <Badge variant="outline" className="tabular-nums">
                   {brand.palettes.length} palette{brand.palettes.length !== 1 ? "s" : ""}
                 </Badge>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setPaletteDialogBrandId(brand.id);
+                    setPaletteName("");
+                    setPaletteAccent("#6366f1");
+                    setPaletteBg("#ffffff");
+                  }}
+                >
+                  <PlusIcon className="mr-1 size-3.5" />
+                  Add Palette
+                </Button>
               </CardFooter>
             </Card>
           ))}
@@ -256,6 +380,129 @@ export default function BrandIdentitiesPage({
           }
         />
       )}
+
+      {/* Edit Brand Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Brand Identity</DialogTitle>
+            <DialogDescription>
+              Update the brand name and tagline.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="edit-brand-name">Name</Label>
+              <Input
+                id="edit-brand-name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleEdit();
+                }}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="edit-brand-tagline">Tagline</Label>
+              <Input
+                id="edit-brand-tagline"
+                value={editTagline}
+                onChange={(e) => setEditTagline(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleEdit();
+                }}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={handleEdit}
+              disabled={!editName.trim() || updateBrand.isPending}
+            >
+              {updateBrand.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Brand Confirmation */}
+      <AlertDialog open={!!deletingBrandId} onOpenChange={(open) => { if (!open) setDeletingBrandId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete brand identity?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete &ldquo;{deletingBrandName}&rdquo; and all its palettes.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleDelete}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Add Palette Dialog */}
+      <Dialog open={!!paletteDialogBrandId} onOpenChange={(open) => { if (!open) setPaletteDialogBrandId(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Palette</DialogTitle>
+            <DialogDescription>
+              Define a color palette with a name, accent color, and background color.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="palette-name">Name</Label>
+              <Input
+                id="palette-name"
+                placeholder="e.g. Primary, Dark Mode"
+                value={paletteName}
+                onChange={(e) => setPaletteName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleAddPalette();
+                }}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="palette-accent">Accent Color</Label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  id="palette-accent"
+                  value={paletteAccent}
+                  onChange={(e) => setPaletteAccent(e.target.value)}
+                  className="h-9 w-12 cursor-pointer rounded border bg-transparent"
+                />
+                <span className="text-sm text-muted-foreground">{paletteAccent}</span>
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="palette-bg">Background Color</Label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  id="palette-bg"
+                  value={paletteBg}
+                  onChange={(e) => setPaletteBg(e.target.value)}
+                  className="h-9 w-12 cursor-pointer rounded border bg-transparent"
+                />
+                <span className="text-sm text-muted-foreground">{paletteBg}</span>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={handleAddPalette}
+              disabled={!paletteName.trim() || addPalette.isPending}
+            >
+              {addPalette.isPending ? "Adding..." : "Add Palette"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
