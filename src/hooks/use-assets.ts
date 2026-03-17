@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/lib/trpc/client";
+import { toast } from "sonner";
 
 export function useAssets(opts?: {
   projectId?: string | null;
@@ -19,9 +20,38 @@ export function useAssets(opts?: {
 export function useMoveAsset() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const { mutationFn } = trpc.asset.move.mutationOptions();
   return useMutation({
-    ...trpc.asset.move.mutationOptions(),
-    onSuccess: () => {
+    mutationFn,
+    onMutate: async (movedAsset) => {
+      await queryClient.cancelQueries({ queryKey: trpc.asset.list.queryKey() });
+      const previousQueries: { queryKey: unknown; data: unknown }[] = [];
+      queryClient
+        .getQueriesData({ queryKey: trpc.asset.list.queryKey() })
+        .forEach(([queryKey, data]) => {
+          previousQueries.push({ queryKey, data });
+        });
+
+      // Optimistic update: change projectId in all list caches
+      queryClient.setQueriesData(
+        { queryKey: trpc.asset.list.queryKey() },
+        (old: any[] | undefined) =>
+          (old ?? []).map((a: any) =>
+            a.id === movedAsset.id
+              ? { ...a, projectId: movedAsset.projectId }
+              : a
+          )
+      );
+
+      return { previousQueries };
+    },
+    onError: (_err, _vars, context) => {
+      context?.previousQueries?.forEach(({ queryKey, data }) => {
+        queryClient.setQueryData(queryKey as any, data);
+      });
+      toast.error("Failed to move asset");
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: trpc.asset.list.queryKey() });
     },
   });
@@ -30,9 +60,33 @@ export function useMoveAsset() {
 export function useDeleteAsset() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const { mutationFn } = trpc.asset.delete.mutationOptions();
   return useMutation({
-    ...trpc.asset.delete.mutationOptions(),
-    onSuccess: () => {
+    mutationFn,
+    onMutate: async (deletedAsset) => {
+      await queryClient.cancelQueries({ queryKey: trpc.asset.list.queryKey() });
+      const previousQueries: { queryKey: unknown; data: unknown }[] = [];
+      queryClient
+        .getQueriesData({ queryKey: trpc.asset.list.queryKey() })
+        .forEach(([queryKey, data]) => {
+          previousQueries.push({ queryKey, data });
+        });
+
+      queryClient.setQueriesData(
+        { queryKey: trpc.asset.list.queryKey() },
+        (old: any[] | undefined) =>
+          (old ?? []).filter((a: any) => a.id !== deletedAsset.id)
+      );
+
+      return { previousQueries };
+    },
+    onError: (_err, _vars, context) => {
+      context?.previousQueries?.forEach(({ queryKey, data }) => {
+        queryClient.setQueryData(queryKey as any, data);
+      });
+      toast.error("Failed to delete asset");
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: trpc.asset.list.queryKey() });
     },
   });
@@ -62,7 +116,11 @@ export function useUploadAsset() {
       }
       return res.json();
     },
-    onSuccess: () => {
+    // No optimistic update for upload -- we don't have the r2Key until server responds
+    onError: () => {
+      toast.error("Failed to upload asset");
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: trpc.asset.list.queryKey() });
     },
   });
