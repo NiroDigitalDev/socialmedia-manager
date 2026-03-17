@@ -16,6 +16,8 @@ import {
   LayoutDashboardIcon,
   SparklesIcon,
   LibraryIcon,
+  GalleryHorizontalEndIcon,
+  PaintbrushIcon,
   FolderKanbanIcon,
   Settings2Icon,
   LogOutIcon,
@@ -62,6 +64,14 @@ export function CommandMenu() {
           <CommandItem onSelect={() => navigate("/dashboard/generate")}>
             <SparklesIcon />
             <span>Generate</span>
+          </CommandItem>
+          <CommandItem onSelect={() => navigate("/dashboard/gallery")}>
+            <GalleryHorizontalEndIcon />
+            <span>Gallery</span>
+          </CommandItem>
+          <CommandItem onSelect={() => navigate("/dashboard/styles")}>
+            <PaintbrushIcon />
+            <span>Styles</span>
           </CommandItem>
           <CommandItem onSelect={() => navigate("/dashboard/assets")}>
             <LibraryIcon />

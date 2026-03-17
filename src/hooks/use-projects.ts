@@ -8,9 +8,12 @@ export function useProjects() {
   return useQuery(trpc.project.list.queryOptions());
 }
 
-export function useProject(id: string) {
+export function useProject(id: string | undefined) {
   const trpc = useTRPC();
-  return useQuery(trpc.project.get.queryOptions({ id }));
+  return useQuery({
+    ...trpc.project.get.queryOptions({ id: id! }),
+    enabled: !!id,
+  });
 }
 
 export function useCreateProject() {

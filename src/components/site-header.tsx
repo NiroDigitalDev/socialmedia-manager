@@ -19,6 +19,8 @@ import { SidebarTrigger } from "@/components/ui/sidebar"
 const SEGMENT_LABELS: Record<string, string> = {
   dashboard: "Dashboard",
   generate: "Generate",
+  gallery: "Gallery",
+  styles: "Styles",
   assets: "Asset Library",
   projects: "Projects",
   settings: "Settings",

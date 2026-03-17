@@ -15,6 +15,7 @@ import { CommandIcon, Settings2Icon } from "lucide-react"
 import Link from "next/link"
 import { authClient } from "@/lib/auth-client"
 import { NavGlobal } from "@/components/nav-global"
+import { NavActiveProject } from "@/components/nav-active-project"
 import { NavFavorites } from "@/components/nav-favorites"
 import { NavProjects } from "@/components/nav-projects"
 import { NavSecondary } from "@/components/nav-secondary"
@@ -60,6 +61,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
       <SidebarContent>
         <NavGlobal />
+        <NavActiveProject />
         <NavFavorites />
         <NavProjects />
         <NavSecondary items={secondaryItems} className="mt-auto" />

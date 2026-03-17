@@ -5,6 +5,7 @@ interface SidebarState {
   favoritesCollapsed: boolean;
   projectsCollapsed: boolean;
   toggleProject: (projectId: string) => void;
+  expandProject: (projectId: string) => void;
   toggleFavorites: () => void;
   toggleProjects: () => void;
 }
@@ -23,6 +24,14 @@ export const useSidebarStore = create<SidebarState>((set) => ({
         next.add(projectId);
       }
       return { expandedProjectIds: next };
+    }),
+
+  expandProject: (projectId) =>
+    set((state) => {
+      if (state.expandedProjectIds.has(projectId)) return state;
+      const next = new Set(state.expandedProjectIds);
+      next.add(projectId);
+      return { expandedProjectIds: next, projectsCollapsed: false };
     }),
 
   toggleFavorites: () =>

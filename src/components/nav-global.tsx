@@ -7,13 +7,21 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { LayoutDashboardIcon, SparklesIcon, LibraryIcon } from "lucide-react";
+import {
+  LayoutDashboardIcon,
+  SparklesIcon,
+  LibraryIcon,
+  GalleryHorizontalEndIcon,
+  PaintbrushIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const items = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboardIcon },
   { title: "Generate", url: "/dashboard/generate", icon: SparklesIcon },
+  { title: "Gallery", url: "/dashboard/gallery", icon: GalleryHorizontalEndIcon },
+  { title: "Styles", url: "/dashboard/styles", icon: PaintbrushIcon },
   { title: "Asset Library", url: "/dashboard/assets", icon: LibraryIcon },
 ];
 
@@ -28,7 +36,11 @@ export function NavGlobal() {
             <SidebarMenuItem key={item.title}>
               <SidebarMenuButton
                 asChild
-                isActive={pathname === item.url}
+                isActive={
+                  item.url === "/dashboard"
+                    ? pathname === item.url
+                    : pathname.startsWith(item.url)
+                }
                 tooltip={item.title}
               >
                 <Link href={item.url}>
