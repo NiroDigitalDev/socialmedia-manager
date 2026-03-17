@@ -8,6 +8,8 @@ import {
   BookmarkIcon,
   Trash2Icon,
   FilterIcon,
+  SparklesIcon,
+  Loader2Icon,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -52,6 +54,7 @@ import {
   useIdeas,
   useToggleIdeaSave,
   useBulkDeleteIdeas,
+  useGenerateIdeas,
 } from "@/hooks/use-content";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -91,15 +94,17 @@ export default function ContentPage({
 }
 
 function SourcesTab({ projectId }: { projectId: string }) {
-  const { data: sources, isLoading } = useSources(projectId);
+  const { data: sources, isLoading, isError } = useSources(projectId);
   const createSource = useCreateSource();
   const deleteSource = useDeleteSource();
+  const generateIdeas = useGenerateIdeas();
 
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [rawText, setRawText] = useState("");
   const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null);
   const [deletingSourceTitle, setDeletingSourceTitle] = useState("");
+  const [generatingSourceId, setGeneratingSourceId] = useState<string | null>(null);
 
   const handleCreate = () => {
     if (!title.trim() || !rawText.trim()) return;
@@ -115,6 +120,15 @@ function SourcesTab({ projectId }: { projectId: string }) {
       }
     );
   };
+
+  if (isError) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+        <p className="text-sm text-muted-foreground">Failed to load data. Please try again.</p>
+        <Button variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -200,18 +214,48 @@ function SourcesTab({ projectId }: { projectId: string }) {
                 <span className="text-xs text-muted-foreground">
                   {new Date(source.createdAt).toLocaleDateString()}
                 </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => {
-                    setDeletingSourceId(source.id);
-                    setDeletingSourceTitle(source.title);
-                  }}
-                  disabled={deleteSource.isPending}
-                >
-                  <TrashIcon className="size-4" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="gap-1.5"
+                    disabled={generateIdeas.isPending && generatingSourceId === source.id}
+                    onClick={() => {
+                      setGeneratingSourceId(source.id);
+                      generateIdeas.mutate(
+                        { sourceId: source.id, projectId },
+                        {
+                          onSuccess: () => setGeneratingSourceId(null),
+                          onError: (err) => {
+                            setGeneratingSourceId(null);
+                            toast.error(err.message ?? "Failed to generate ideas");
+                          },
+                        }
+                      );
+                    }}
+                  >
+                    {generateIdeas.isPending && generatingSourceId === source.id ? (
+                      <Loader2Icon className="size-3.5 animate-spin" />
+                    ) : (
+                      <SparklesIcon className="size-3.5" />
+                    )}
+                    {generateIdeas.isPending && generatingSourceId === source.id
+                      ? "Generating..."
+                      : "Generate Ideas"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => {
+                      setDeletingSourceId(source.id);
+                      setDeletingSourceTitle(source.title);
+                    }}
+                    disabled={deleteSource.isPending}
+                  >
+                    <TrashIcon className="size-4" />
+                  </Button>
+                </div>
               </CardFooter>
             </Card>
           ))}
@@ -271,7 +315,7 @@ function IdeasTab({ projectId }: { projectId: string }) {
   const [contentTypeFilter, setContentTypeFilter] = useState<string>("all");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const { data: ideas, isLoading } = useIdeas({
+  const { data: ideas, isLoading, isError } = useIdeas({
     projectId,
     contentType: contentTypeFilter === "all" ? undefined : contentTypeFilter,
   });

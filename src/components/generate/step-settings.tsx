@@ -103,7 +103,18 @@ export function StepSettings() {
         colorOverride: colorOverride ?? undefined,
         formatPerPlatform: settings.formatPerPlatform as Record<
           string,
-          "static" | "carousel" | "text"
+          | "static"
+          | "carousel"
+          | "text"
+          | "short"
+          | "long"
+          | "thread"
+          | "single"
+          | "standard"
+          | "listicle"
+          | "newsletter"
+          | "marketing"
+          | "image"
         >,
         aspectRatioPerPlatform: settings.aspectRatioPerPlatform as Record<
           string,
@@ -115,6 +126,7 @@ export function StepSettings() {
         variations: settings.variations,
         includeLogo: settings.includeLogo,
         outline: outline ?? undefined,
+        contentIdeaId: content.contentIdeaId ?? undefined,
         projectId: projectId ?? undefined,
         campaignId: campaignId ?? undefined,
       },

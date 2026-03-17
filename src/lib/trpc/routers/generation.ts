@@ -97,7 +97,23 @@ Example: [{ "platform": "instagram", "headline": "...", "sections": [...], "tone
           .object({ accent: z.string(), bg: z.string() })
           .optional(),
         formatPerPlatform: z
-          .record(platformSchema, z.enum(["static", "carousel", "text"]))
+          .record(
+            platformSchema,
+            z.enum([
+              "static",
+              "carousel",
+              "text",
+              "short",
+              "long",
+              "thread",
+              "single",
+              "standard",
+              "listicle",
+              "newsletter",
+              "marketing",
+              "image",
+            ])
+          )
           .optional(),
         aspectRatioPerPlatform: z
           .record(platformSchema, aspectRatioSchema)
@@ -232,38 +248,38 @@ Example: [{ "platform": "instagram", "headline": "...", "sections": [...], "tone
             })
           : [null]; // null = no style applied
 
-      // ---------- Generate per platform x style x variation ----------
+      // ---------- Determine format category for each platform ----------
+      // IMAGE_FORMATS trigger image generation; everything else is text-only
+      const IMAGE_FORMATS = new Set(["static", "carousel", "image"]);
+
+      // ---------- Create all post records up-front (status: "generating") ----------
       const postIds: string[] = [];
 
+      interface PostJob {
+        postId: string;
+        platform: string;
+        format: string;
+        aspectRatio: string;
+        isTextOnly: boolean;
+        stylePrompt: string;
+        variation: number;
+      }
+      const jobs: PostJob[] = [];
+
       for (const platform of input.platforms) {
-        const isTextOnly = TEXT_ONLY_PLATFORMS.has(platform);
+        const isTextOnlyPlatform = TEXT_ONLY_PLATFORMS.has(platform);
         const format =
-          input.formatPerPlatform?.[platform] ?? (isTextOnly ? "text" : "static");
+          input.formatPerPlatform?.[platform] ??
+          (isTextOnlyPlatform ? "text" : "static");
         const aspectRatio =
           input.aspectRatioPerPlatform?.[platform] ?? "1:1";
+        // Non-image formats (short, long, thread, newsletter, etc.) are text-only
+        const isTextOnly = isTextOnlyPlatform || !IMAGE_FORMATS.has(format);
 
         for (const style of styles) {
           const stylePrompt = style?.promptText ?? "";
 
-          // Build context parts
-          const contextParts = [
-            stylePrompt && `VISUAL STYLE: ${stylePrompt}`,
-            brandColorContext && `BRAND: ${brandColorContext}`,
-            logoContext,
-          ].filter(Boolean);
-          const fullContext = contextParts.join("\n\n");
-
-          const hasSlidePrompts =
-            contentIdea?.slidePrompts && contentIdea.slidePrompts.length > 0;
-          const numSlides =
-            format === "carousel"
-              ? Math.min(input.slideCount, 10)
-              : 1;
-          const refs =
-            logoReferenceImages.length > 0 ? logoReferenceImages : undefined;
-
           for (let v = 0; v < numVariations; v++) {
-            // Create the post record
             const post = await ctx.prisma.generatedPost.create({
               data: {
                 prompt: input.prompt,
@@ -282,105 +298,142 @@ Example: [{ "platform": "instagram", "headline": "...", "sections": [...], "tone
             });
 
             postIds.push(post.id);
-
-            // ---------- Text-only generation ----------
-            if (isTextOnly || format === "text") {
-              try {
-                const textPrompt = `${fullContext ? fullContext + "\n\n" : ""}Write a ${platform} post based on this brief:\n\n${input.prompt}${numVariations > 1 ? `\n\nVARIATION ${v + 1}: Make this distinct from other variations while keeping the same core message.` : ""}`;
-
-                const textContent = await geminiText.generateContent(textPrompt);
-
-                await ctx.prisma.generatedPost.update({
-                  where: { id: post.id },
-                  data: {
-                    textContent,
-                    status: "completed",
-                  },
-                });
-              } catch {
-                await ctx.prisma.generatedPost.update({
-                  where: { id: post.id },
-                  data: { status: "failed" },
-                });
-              }
-              continue;
-            }
-
-            // ---------- Image generation ----------
-            const generateSlide = async (slideNumber: number) => {
-              const parts: string[] = [];
-
-              if (fullContext) {
-                parts.push(fullContext);
-              }
-
-              if (contentIdea?.styleGuide && format === "carousel") {
-                parts.push(
-                  `LAYOUT GUIDE (apply consistently to ALL slides): ${contentIdea.styleGuide}`
-                );
-              }
-
-              if (
-                hasSlidePrompts &&
-                contentIdea!.slidePrompts[slideNumber - 1]
-              ) {
-                parts.push(
-                  `SLIDE ${slideNumber} OF ${numSlides}:\n${contentIdea!.slidePrompts[slideNumber - 1]}`
-                );
-              } else {
-                let manual = input.prompt;
-                if (format === "carousel" && numSlides > 1) {
-                  manual = `${manual}. This is slide ${slideNumber} of ${numSlides} in a carousel post. Make it visually consistent with other slides but with unique content for this slide.`;
-                }
-                parts.push(manual);
-              }
-
-              if (numVariations > 1) {
-                parts.push(
-                  `VARIATION ${v + 1}: Make this visually distinct from other variations while keeping the same core message.`
-                );
-              }
-
-              const slidePrompt = parts.join("\n\n");
-              const result = await generateImage(
-                slidePrompt,
-                input.model,
-                aspectRatio as AspectRatioKey,
-                refs
-              );
-
-              return ctx.prisma.generatedImage.create({
-                data: {
-                  postId: post.id,
-                  slideNumber,
-                  data: Buffer.from(result.base64, "base64"),
-                  mimeType: result.mimeType,
-                },
-              });
-            };
-
-            try {
-              await Promise.all(
-                Array.from({ length: numSlides }, (_, i) =>
-                  generateSlide(i + 1)
-                )
-              );
-
-              await ctx.prisma.generatedPost.update({
-                where: { id: post.id },
-                data: { status: "completed" },
-              });
-            } catch {
-              await ctx.prisma.generatedPost.update({
-                where: { id: post.id },
-                data: { status: "failed" },
-              });
-            }
+            jobs.push({
+              postId: post.id,
+              platform,
+              format,
+              aspectRatio,
+              isTextOnly,
+              stylePrompt,
+              variation: v,
+            });
           }
         }
       }
 
-      return { postIds };
+      // ---------- Return immediately ----------
+      const result = { postIds };
+
+      // ---------- Fire-and-forget: generate in background ----------
+      void (async () => {
+        for (const job of jobs) {
+          const { postId, platform, format, aspectRatio, isTextOnly, stylePrompt, variation } = job;
+
+          // Build context parts
+          const contextParts = [
+            stylePrompt && `VISUAL STYLE: ${stylePrompt}`,
+            brandColorContext && `BRAND: ${brandColorContext}`,
+            logoContext,
+          ].filter(Boolean);
+          const fullContext = contextParts.join("\n\n");
+
+          const hasSlidePrompts =
+            contentIdea?.slidePrompts && contentIdea.slidePrompts.length > 0;
+          const numSlides =
+            format === "carousel"
+              ? Math.min(input.slideCount, 10)
+              : 1;
+          const refs =
+            logoReferenceImages.length > 0 ? logoReferenceImages : undefined;
+
+          // ---------- Text-only generation ----------
+          if (isTextOnly) {
+            try {
+              const formatHint = format !== "text" ? ` in "${format}" format` : "";
+              const textPrompt = `${fullContext ? fullContext + "\n\n" : ""}Write a ${platform} post${formatHint} based on this brief:\n\n${input.prompt}${numVariations > 1 ? `\n\nVARIATION ${variation + 1}: Make this distinct from other variations while keeping the same core message.` : ""}`;
+
+              const textContent = await geminiText.generateContent(textPrompt);
+
+              await ctx.prisma.generatedPost.update({
+                where: { id: postId },
+                data: {
+                  textContent,
+                  status: "completed",
+                },
+              });
+            } catch {
+              await ctx.prisma.generatedPost.update({
+                where: { id: postId },
+                data: { status: "failed" },
+              });
+            }
+            continue;
+          }
+
+          // ---------- Image generation ----------
+          const generateSlide = async (slideNumber: number) => {
+            const parts: string[] = [];
+
+            if (fullContext) {
+              parts.push(fullContext);
+            }
+
+            if (contentIdea?.styleGuide && format === "carousel") {
+              parts.push(
+                `LAYOUT GUIDE (apply consistently to ALL slides): ${contentIdea.styleGuide}`
+              );
+            }
+
+            if (
+              hasSlidePrompts &&
+              contentIdea!.slidePrompts[slideNumber - 1]
+            ) {
+              parts.push(
+                `SLIDE ${slideNumber} OF ${numSlides}:\n${contentIdea!.slidePrompts[slideNumber - 1]}`
+              );
+            } else {
+              let manual = input.prompt;
+              if (format === "carousel" && numSlides > 1) {
+                manual = `${manual}. This is slide ${slideNumber} of ${numSlides} in a carousel post. Make it visually consistent with other slides but with unique content for this slide.`;
+              }
+              parts.push(manual);
+            }
+
+            if (numVariations > 1) {
+              parts.push(
+                `VARIATION ${variation + 1}: Make this visually distinct from other variations while keeping the same core message.`
+              );
+            }
+
+            const slidePrompt = parts.join("\n\n");
+            const imgResult = await generateImage(
+              slidePrompt,
+              input.model,
+              aspectRatio as AspectRatioKey,
+              refs
+            );
+
+            return ctx.prisma.generatedImage.create({
+              data: {
+                postId,
+                slideNumber,
+                data: Buffer.from(imgResult.base64, "base64"),
+                mimeType: imgResult.mimeType,
+              },
+            });
+          };
+
+          try {
+            await Promise.all(
+              Array.from({ length: numSlides }, (_, i) =>
+                generateSlide(i + 1)
+              )
+            );
+
+            await ctx.prisma.generatedPost.update({
+              where: { id: postId },
+              data: { status: "completed" },
+            });
+          } catch {
+            await ctx.prisma.generatedPost.update({
+              where: { id: postId },
+              data: { status: "failed" },
+            });
+          }
+        }
+      })();
+
+      return result;
     }),
 
   // ---------- Get Results (for polling) ----------
@@ -455,6 +508,8 @@ Example: [{ "platform": "instagram", "headline": "...", "sections": [...], "tone
           images: post.images.map((img) => ({
             id: img.id,
             slideNumber: img.slideNumber,
+            mimeType: img.mimeType,
+            url: `/api/images/${img.id}?type=generated`,
           })),
         })),
         total,
