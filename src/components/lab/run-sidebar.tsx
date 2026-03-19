@@ -148,10 +148,27 @@ export function RunSidebar({
         )}
 
         {!isLoading && runs.length === 0 && (
-          <div className="flex flex-col items-center justify-center gap-2 p-6 text-center">
+          <div className="flex flex-col items-center justify-center gap-3 p-6 text-center">
             <p className="text-xs text-muted-foreground">
-              No runs yet. Create one to get started.
+              No runs yet.
             </p>
+            <p className="text-[11px] text-muted-foreground/60">
+              Create a run to start generating variations.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onNewRun}
+              disabled={isCreatingRun}
+              className="h-7 gap-1 px-3 text-xs"
+            >
+              {isCreatingRun ? (
+                <Loader2Icon className="size-3 animate-spin" />
+              ) : (
+                <PlusIcon className="size-3" />
+              )}
+              New Run
+            </Button>
           </div>
         )}
 

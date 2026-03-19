@@ -21,7 +21,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import { Loader2Icon, XCircleIcon } from "lucide-react";
+import { AlertCircleIcon, Loader2Icon, RefreshCwIcon, XCircleIcon } from "lucide-react";
 import { PipelineTweaker } from "@/components/lab/pipeline-tweaker";
 
 interface ResultsTabProps {
@@ -226,6 +226,38 @@ export function ResultsTab({ runId }: ResultsTabProps) {
         </div>
       )}
 
+      {/* Run-level failed banner */}
+      {run.status === "failed" && (
+        <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+          <AlertCircleIcon className="size-5 shrink-0 text-destructive/70" />
+          <div>
+            <p className="text-sm font-medium text-destructive">
+              Run failed
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Some or all variations failed to generate. You can retry individual
+              variations below.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Cancelled banner */}
+      {run.status === "cancelled" && (
+        <div className="flex items-center gap-3 rounded-lg border border-orange-300/30 bg-orange-50/50 px-4 py-3 dark:border-orange-700/30 dark:bg-orange-950/20">
+          <XCircleIcon className="size-5 shrink-0 text-orange-600 dark:text-orange-400" />
+          <div>
+            <p className="text-sm font-medium text-orange-700 dark:text-orange-400">
+              Run cancelled
+            </p>
+            <p className="text-xs text-muted-foreground">
+              This run was cancelled. Completed variations are still available
+              below.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Concept tabs */}
       <Tabs
         value={effectiveConceptId ?? ""}
@@ -380,6 +412,14 @@ function ConceptContent({
     );
   }
 
+  // Check if all variations failed
+  const allImagesFailed =
+    sortedImages.length > 0 && sortedImages.every((v) => v.status === "failed");
+  const allCaptionsFailed =
+    sortedCaptions.length > 0 &&
+    sortedCaptions.every((v) => v.status === "failed");
+  const allFailed = allImagesFailed && allCaptionsFailed;
+
   const totalImages =
     (conceptProgress?.images.completed ?? 0) +
     (conceptProgress?.images.generating ?? 0) +
@@ -393,6 +433,40 @@ function ConceptContent({
 
   return (
     <div className="space-y-8">
+      {/* All failed banner */}
+      {allFailed && !isGenerating && (
+        <div className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+          <div className="flex items-center gap-3">
+            <AlertCircleIcon className="size-5 text-destructive/70" />
+            <div>
+              <p className="text-sm font-medium text-destructive">
+                All variations failed
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Generation failed for every variation in this concept. Retry to
+                try again.
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/10"
+            onClick={() => {
+              sortedImages
+                .filter((v) => v.status === "failed")
+                .forEach((v) => onRetryImage(v.id));
+              sortedCaptions
+                .filter((v) => v.status === "failed")
+                .forEach((v) => onRetryCaption(v.id));
+            }}
+          >
+            <RefreshCwIcon className="size-3.5" />
+            Retry All
+          </Button>
+        </div>
+      )}
+
       {/* Progress bar when generating */}
       {isGenerating && conceptProgress && (
         <div className="space-y-2">
@@ -428,7 +502,24 @@ function ConceptContent({
 
       {/* Images section */}
       <section className="space-y-3">
-        <h3 className="text-sm font-medium">Images</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium">Images</h3>
+          {!allFailed && allImagesFailed && !isGenerating && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-2 text-xs text-destructive hover:text-destructive"
+              onClick={() =>
+                sortedImages
+                  .filter((v) => v.status === "failed")
+                  .forEach((v) => onRetryImage(v.id))
+              }
+            >
+              <RefreshCwIcon className="size-3" />
+              Retry All
+            </Button>
+          )}
+        </div>
         {sortedImages.length === 0 ? (
           <p className="text-xs text-muted-foreground">No image variations.</p>
         ) : (
@@ -450,7 +541,24 @@ function ConceptContent({
 
       {/* Captions section */}
       <section className="space-y-3">
-        <h3 className="text-sm font-medium">Captions</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium">Captions</h3>
+          {!allFailed && allCaptionsFailed && !isGenerating && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-2 text-xs text-destructive hover:text-destructive"
+              onClick={() =>
+                sortedCaptions
+                  .filter((v) => v.status === "failed")
+                  .forEach((v) => onRetryCaption(v.id))
+              }
+            >
+              <RefreshCwIcon className="size-3" />
+              Retry All
+            </Button>
+          )}
+        </div>
         {sortedCaptions.length === 0 ? (
           <p className="text-xs text-muted-foreground">
             No caption variations.

@@ -1,7 +1,7 @@
 "use client";
 
-import { use, useEffect } from "react";
-import { useExperiment, useCreateRun, useDeleteRun } from "@/hooks/use-lab";
+import { use, useEffect, useRef } from "react";
+import { useExperiment, useCreateRun, useDeleteRun, useRun } from "@/hooks/use-lab";
 import { useLabStore } from "@/stores/use-lab-store";
 import { RunSidebar } from "@/components/lab/run-sidebar";
 import { ConfigureTab } from "@/components/lab/configure-tab";
@@ -22,6 +22,7 @@ import {
   LayoutGridIcon,
   DownloadIcon,
   GitCompareArrowsIcon,
+  MousePointerClickIcon,
   XIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -49,10 +50,42 @@ export default function ExperimentWorkspacePage({
     reset,
   } = useLabStore();
 
-  // Reset store on mount / experiment change
+  // Reset store on mount / experiment change, and on unmount (navigation away)
   useEffect(() => {
     reset();
+    return () => reset();
   }, [experimentId, reset]);
+
+  // ── Auto-tab switching based on selected run's status ──────────
+  const { data: selectedRun } = useRun(selectedRunId ?? undefined);
+  const prevRunStatusRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!selectedRun) {
+      prevRunStatusRef.current = undefined;
+      return;
+    }
+
+    const prevStatus = prevRunStatusRef.current;
+    const currentStatus = selectedRun.status;
+
+    // When status transitions from configuring to generating, switch to results
+    if (prevStatus === "configuring" && currentStatus === "generating") {
+      setActiveTab("results");
+    }
+
+    // When selecting a run that is still configuring, show configure tab
+    if (prevStatus === undefined && currentStatus === "configuring") {
+      setActiveTab("configure");
+    }
+
+    prevRunStatusRef.current = currentStatus;
+  }, [selectedRun, selectedRun?.status, setActiveTab]);
+
+  // Reset prev status ref when switching runs
+  useEffect(() => {
+    prevRunStatusRef.current = undefined;
+  }, [selectedRunId]);
 
   const handleNewRun = () => {
     createRun.mutate(
@@ -252,7 +285,10 @@ export default function ExperimentWorkspacePage({
               </TabsContent>
             </Tabs>
           ) : (
-            <div className="flex flex-1 items-center justify-center">
+            <div className="flex flex-1 flex-col items-center justify-center gap-3">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-muted">
+                <MousePointerClickIcon className="size-6 text-muted-foreground/40" />
+              </div>
               <p className="text-sm text-muted-foreground">
                 {comparisonMode
                   ? "Select two runs to compare"

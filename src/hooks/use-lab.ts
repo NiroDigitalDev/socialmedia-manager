@@ -16,6 +16,12 @@ export function useExperiment(id: string | undefined) {
   return useQuery({
     ...trpc.lab.getExperiment.queryOptions({ id: id! }),
     enabled: !!id,
+    // Re-fetch while any run is in a transient status so sidebar badges update
+    refetchInterval: (query) => {
+      const runs = (query.state.data as { runs?: { status: string }[] } | undefined)?.runs;
+      const hasGenerating = runs?.some((r) => r.status === "generating");
+      return hasGenerating ? 5000 : false;
+    },
   });
 }
 
@@ -24,6 +30,12 @@ export function useRun(runId: string | undefined) {
   return useQuery({
     ...trpc.lab.getRun.queryOptions({ runId: runId! }),
     enabled: !!runId,
+    // Re-fetch periodically while the run is in a transient state so the UI
+    // picks up status changes (configuring -> generating -> completed/failed).
+    refetchInterval: (query) => {
+      const status = (query.state.data as { status?: string } | undefined)?.status;
+      return status === "generating" ? 3000 : false;
+    },
   });
 }
 
