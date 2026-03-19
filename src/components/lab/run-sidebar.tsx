@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -69,32 +69,40 @@ export function RunSidebar({
   } = useLabStore();
 
   const [deleteRunId, setDeleteRunId] = useState<string | null>(null);
+  const [comparisonSelections, setComparisonSelections] = useState<string[]>([]);
+
+  // Reset selections when exiting comparison mode
+  const prevComparisonMode = React.useRef(comparisonMode);
+  React.useEffect(() => {
+    if (prevComparisonMode.current && !comparisonMode) {
+      setComparisonSelections([]);
+    }
+    prevComparisonMode.current = comparisonMode;
+  }, [comparisonMode]);
 
   // In comparison mode, track up to 2 checked runs
   const handleComparisonToggle = (runId: string, checked: boolean) => {
-    const current: string[] = comparisonRunIds ? [...comparisonRunIds] : [];
-    if (checked) {
-      if (current.length < 2) {
-        const next = [...current, runId];
-        if (next.length === 2) {
-          setComparisonRuns(next as [string, string]);
-        } else {
-          setComparisonRuns(null);
-          selectRun(runId);
-        }
+    setComparisonSelections((prev) => {
+      let next: string[];
+      if (checked) {
+        if (prev.length >= 2) return prev; // max 2
+        next = [...prev, runId];
+      } else {
+        next = prev.filter((id) => id !== runId);
       }
-    } else {
-      const next = current.filter((id) => id !== runId);
-      setComparisonRuns(null);
-      if (next.length === 1) {
-        selectRun(next[0]);
+      // Update store when exactly 2 selected
+      if (next.length === 2) {
+        setComparisonRuns(next as [string, string]);
+      } else {
+        setComparisonRuns(null);
       }
-    }
+      return next;
+    });
   };
 
   const isRunChecked = (runId: string) => {
-    if (!comparisonRunIds) return selectedRunId === runId;
-    return comparisonRunIds.includes(runId);
+    if (comparisonMode) return comparisonSelections.includes(runId);
+    return selectedRunId === runId;
   };
 
   // Build a lookup for parent run numbers
