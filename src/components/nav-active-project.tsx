@@ -14,6 +14,7 @@ import {
   FlaskConicalIcon,
   PaletteIcon,
   ImageIcon,
+  TestTubeDiagonalIcon,
   XIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -28,6 +29,7 @@ const subPages = [
   { title: "Campaigns", segment: "/campaigns", icon: FlaskConicalIcon },
   { title: "Brand Identities", segment: "/brands", icon: PaletteIcon },
   { title: "Assets", segment: "/assets", icon: ImageIcon },
+  { title: "Lab", segment: "/lab", icon: TestTubeDiagonalIcon },
 ];
 
 function extractProjectId(pathname: string): string | null {
