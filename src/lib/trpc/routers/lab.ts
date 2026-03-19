@@ -1,8 +1,22 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, orgProtectedProcedure } from "../init";
-import { deleteFromR2, fetchFromR2 } from "@/lib/r2";
-import { geminiText } from "@/lib/gemini";
+import { deleteFromR2, fetchFromR2, uploadToR2 } from "@/lib/r2";
+import { geminiText, generateImage, type ModelKey, type AspectRatioKey } from "@/lib/gemini";
+
+// ── Retry Helper ──────────────────────────────────────────────────
+
+async function withRetry<T>(fn: () => Promise<T>, retries = 2, delays = [1000, 3000]): Promise<T> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt === retries) throw err;
+      await new Promise(r => setTimeout(r, delays[attempt] ?? 3000));
+    }
+  }
+  throw new Error("unreachable");
+}
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -683,7 +697,30 @@ export const labRouter = router({
       // 6. Generate N outlines
       const outlines = await generateOutlines(contentInput, settings.conceptCount);
 
-      // 7. Create RunConcept records + ImageVariation + CaptionVariation records
+      // 7. Fetch logo reference images for image generation (if brand has a logo)
+      let referenceImages: { base64: string; mimeType: string }[] | undefined;
+      if (brandIdentity?.logoAssetId) {
+        const logoAsset = await ctx.prisma.asset.findUnique({
+          where: { id: brandIdentity.logoAssetId },
+          select: { r2Key: true },
+        });
+        if (logoAsset) {
+          try {
+            const { data: logoData, contentType } = await fetchFromR2(logoAsset.r2Key);
+            referenceImages = [{ base64: logoData.toString("base64"), mimeType: contentType }];
+          } catch {
+            // R2 fetch failed — continue without logo reference
+          }
+        }
+      }
+
+      // 8. Create RunConcept records + ImageVariation + CaptionVariation records
+      const createdConcepts: {
+        id: string;
+        imageVariations: { id: string; imagePrompt: string }[];
+        captionVariations: { id: string; captionPrompt: string }[];
+      }[] = [];
+
       for (let c = 0; c < outlines.length; c++) {
         const outline = outlines[c];
         const conceptNumber = c + 1;
@@ -765,9 +802,115 @@ export const labRouter = router({
         await ctx.prisma.captionVariation.createMany({
           data: captionVariationData,
         });
+
+        // Fetch back the created variations so we have their IDs and prompts
+        const [imgVars, capVars] = await Promise.all([
+          ctx.prisma.imageVariation.findMany({
+            where: { conceptId: concept.id },
+            select: { id: true, imagePrompt: true },
+            orderBy: { variationNumber: "asc" },
+          }),
+          ctx.prisma.captionVariation.findMany({
+            where: { conceptId: concept.id },
+            select: { id: true, captionPrompt: true },
+            orderBy: { variationNumber: "asc" },
+          }),
+        ]);
+
+        createdConcepts.push({
+          id: concept.id,
+          imageVariations: imgVars,
+          captionVariations: capVars,
+        });
       }
 
-      // 8. Return runId immediately — background generation is Task 4b
+      // 9. Capture values for the background closure
+      const runId = input.runId;
+      const model = settings.model as ModelKey;
+      const aspectRatio = settings.aspectRatio as AspectRatioKey;
+
+      // 10. Fire-and-forget background generation
+      void (async () => {
+        const pLimit = (await import("p-limit")).default;
+        const imageLimit = pLimit(5);   // max 5 parallel image gen calls
+        const captionLimit = pLimit(10); // max 10 parallel caption calls
+
+        const allJobs: Promise<void>[] = [];
+
+        for (const concept of createdConcepts) {
+          // Image variations
+          for (const imgVar of concept.imageVariations) {
+            allJobs.push(imageLimit(async () => {
+              // Check cancellation before each job
+              const currentRun = await ctx.prisma.run.findUnique({ where: { id: runId }, select: { status: true } });
+              if (currentRun?.status === "cancelled") return;
+
+              try {
+                await withRetry(async () => {
+                  const result = await generateImage(imgVar.imagePrompt, model, aspectRatio, referenceImages);
+                  const buffer = Buffer.from(result.base64, "base64");
+                  const r2Key = `lab/${imgVar.id}/original.${result.mimeType === "image/png" ? "png" : "webp"}`;
+                  await uploadToR2(r2Key, buffer, result.mimeType);
+                  await ctx.prisma.imageVariation.update({
+                    where: { id: imgVar.id },
+                    data: { status: "completed", r2Key, mimeType: result.mimeType },
+                  });
+                });
+              } catch {
+                await ctx.prisma.imageVariation.update({
+                  where: { id: imgVar.id },
+                  data: { status: "failed" },
+                });
+              }
+            }));
+          }
+
+          // Caption variations
+          for (const capVar of concept.captionVariations) {
+            allJobs.push(captionLimit(async () => {
+              const currentRun = await ctx.prisma.run.findUnique({ where: { id: runId }, select: { status: true } });
+              if (currentRun?.status === "cancelled") return;
+
+              try {
+                await withRetry(async () => {
+                  const text = await geminiText.generateContent(capVar.captionPrompt);
+                  await ctx.prisma.captionVariation.update({
+                    where: { id: capVar.id },
+                    data: { status: "completed", text },
+                  });
+                });
+              } catch {
+                await ctx.prisma.captionVariation.update({
+                  where: { id: capVar.id },
+                  data: { status: "failed" },
+                });
+              }
+            }));
+          }
+        }
+
+        await Promise.allSettled(allJobs);
+
+        // Final status update (skip if cancelled)
+        const finalRun = await ctx.prisma.run.findUnique({ where: { id: runId }, select: { status: true } });
+        if (finalRun?.status === "cancelled") return;
+
+        const allVariations = await ctx.prisma.imageVariation.findMany({
+          where: { concept: { runId } }, select: { status: true },
+        });
+        const allCaptions = await ctx.prisma.captionVariation.findMany({
+          where: { concept: { runId } }, select: { status: true },
+        });
+        const all = [...allVariations, ...allCaptions];
+        const allFailed = all.every(v => v.status === "failed");
+
+        await ctx.prisma.run.update({
+          where: { id: runId },
+          data: { status: allFailed ? "failed" : "completed" },
+        });
+      })();
+
+      // 11. Return runId immediately
       return { runId: input.runId };
     }),
 });
