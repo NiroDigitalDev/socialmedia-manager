@@ -44,6 +44,26 @@ enum FavoriteTargetType {
   route
 }
 
+enum RunStatus {
+  configuring
+  generating
+  completed
+  failed
+  cancelled
+}
+
+enum RunScope {
+  full
+  batch
+  single
+}
+
+enum VariationStatus {
+  generating
+  completed
+  failed
+}
+
 model Project {
   id          String          @id @default(cuid())
   name        String
@@ -59,6 +79,7 @@ model Project {
   contentIdeas    ContentIdea[]     @relation("ProjectContentIdeas")
   posts           GeneratedPost[]   @relation("ProjectPosts")
   assets          Asset[]
+  experiments     Experiment[]
 
   @@index([orgId])
 }
@@ -92,8 +113,9 @@ model BrandIdentity {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  palettes  BrandPalette[] @relation("BrandIdentityPalettes")
-  campaigns Campaign[]
+  palettes    BrandPalette[] @relation("BrandIdentityPalettes")
+  campaigns   Campaign[]
+  experiments Experiment[]
 
   @@index([projectId])
   @@index([orgId])
@@ -238,6 +260,7 @@ model GeneratedPost {
   campaign      Campaign?        @relation("CampaignPosts", fields: [campaignId], references: [id], onDelete: SetNull)
   createdAt     DateTime         @default(now())
   images        GeneratedImage[]
+  exports       RunExport[]
 
   @@index([orgId])
   @@index([projectId])
@@ -249,9 +272,119 @@ model GeneratedImage {
   postId      String
   post        GeneratedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
   slideNumber Int
-  data        Bytes
+  data        Bytes?
+  r2Key       String?
   mimeType    String        @default("image/png")
   createdAt   DateTime      @default(now())
+}
+
+// ── Lab: Experiment & Run models ──────────────────────────────────
+
+model Experiment {
+  id              String         @id @default(cuid())
+  name            String
+  projectId       String
+  orgId           String
+  brandIdentityId String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  brandIdentity   BrandIdentity? @relation(fields: [brandIdentityId], references: [id], onDelete: SetNull)
+  runs            Run[]
+
+  @@index([orgId])
+  @@index([projectId])
+}
+
+model Run {
+  id               String    @id @default(cuid())
+  experimentId     String
+  orgId            String
+  runNumber        Int
+  status           RunStatus @default(configuring)
+  scope            RunScope  @default(full)
+  settingsSnapshot Json
+  parentRunId      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  experiment       Experiment  @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  parentRun        Run?        @relation("RunLineage", fields: [parentRunId], references: [id], onDelete: SetNull)
+  childRuns        Run[]       @relation("RunLineage")
+  concepts         RunConcept[]
+  exports          RunExport[]
+
+  @@unique([experimentId, runNumber])
+  @@index([orgId])
+  @@index([parentRunId])
+}
+
+model RunConcept {
+  id            String  @id @default(cuid())
+  runId         String
+  conceptNumber Int
+  outline       Json
+  imagePrompt   String  @db.Text
+  captionPrompt String  @db.Text
+
+  run               Run                @relation(fields: [runId], references: [id], onDelete: Cascade)
+  imageVariations   ImageVariation[]
+  captionVariations CaptionVariation[]
+  exports           RunExport[]
+
+  @@unique([runId, conceptNumber])
+}
+
+model ImageVariation {
+  id              String          @id @default(cuid())
+  conceptId       String
+  variationNumber Int
+  imagePrompt     String          @db.Text
+  r2Key           String?
+  mimeType        String?
+  status          VariationStatus @default(generating)
+  rating          Int?
+  ratingComment   String?
+
+  concept         RunConcept      @relation(fields: [conceptId], references: [id], onDelete: Cascade)
+  exports         RunExport[]
+
+  @@index([conceptId])
+}
+
+model CaptionVariation {
+  id              String          @id @default(cuid())
+  conceptId       String
+  variationNumber Int
+  captionPrompt   String          @db.Text
+  text            String?         @db.Text
+  status          VariationStatus @default(generating)
+  rating          Int?
+  ratingComment   String?
+
+  concept         RunConcept      @relation(fields: [conceptId], references: [id], onDelete: Cascade)
+  exports         RunExport[]
+
+  @@index([conceptId])
+}
+
+model RunExport {
+  id                 String   @id @default(cuid())
+  runId              String
+  conceptId          String
+  imageVariationId   String
+  captionVariationId String
+  generatedPostId    String?
+  exportedAt         DateTime @default(now())
+
+  run              Run              @relation(fields: [runId], references: [id], onDelete: Cascade)
+  concept          RunConcept       @relation(fields: [conceptId], references: [id], onDelete: Cascade)
+  imageVariation   ImageVariation   @relation(fields: [imageVariationId], references: [id], onDelete: Cascade)
+  captionVariation CaptionVariation @relation(fields: [captionVariationId], references: [id], onDelete: Cascade)
+  generatedPost    GeneratedPost?   @relation(fields: [generatedPostId], references: [id], onDelete: SetNull)
+
+  @@index([runId])
 }
 
 model User {
