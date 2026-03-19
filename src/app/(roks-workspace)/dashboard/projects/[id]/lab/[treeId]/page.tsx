@@ -2,7 +2,7 @@
 
 import { use, useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useTree, useTreeProgress } from "@/hooks/use-lab";
+import { useTree, useTreeProgress, useCancelGeneration } from "@/hooks/use-lab";
 import { useTRPC } from "@/lib/trpc/client";
 import { useLabStore } from "@/stores/use-lab-store";
 import { LabCanvas, type LabNode } from "@/components/lab/canvas";
@@ -12,7 +12,8 @@ import { FloatingActionBar } from "@/components/lab/floating-action-bar";
 import { SourceUploadDialog } from "@/components/lab/source-upload-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeftIcon } from "lucide-react";
+import { ArrowLeftIcon, Loader2Icon, XIcon } from "lucide-react";
+import { toast } from "sonner";
 import Link from "next/link";
 
 export default function TreeCanvasPage({
@@ -25,6 +26,7 @@ export default function TreeCanvasPage({
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const { data: tree, isLoading, isError } = useTree(treeId);
+  const cancelGeneration = useCancelGeneration();
   const selectedNodeId = useLabStore((s) => s.selectedNodeId);
   const reset = useLabStore((s) => s.reset);
   const [sourceDialogOpen, setSourceDialogOpen] = useState(false);
@@ -80,6 +82,19 @@ export default function TreeCanvasPage({
     setSourceDialogOpen(true);
   }, []);
 
+  const handleCancelGeneration = useCallback(() => {
+    cancelGeneration.mutate(
+      { treeId },
+      {
+        onSuccess: (data) => {
+          toast.success(
+            `Cancelled ${data.cancelledCount} generating node${data.cancelledCount === 1 ? "" : "s"}`,
+          );
+        },
+      },
+    );
+  }, [cancelGeneration, treeId]);
+
   if (isLoading) {
     return (
       <div className="flex h-full flex-col">
@@ -133,12 +148,50 @@ export default function TreeCanvasPage({
       {/* Canvas + Detail Panel */}
       <div className="flex flex-1 overflow-hidden">
         <div className="relative flex-1">
-          <LabCanvas nodes={nodes} treeId={treeId} />
-          <FloatingActionBar treeId={treeId} nodes={nodes} />
+          {nodes.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
+              <div className="rounded-full bg-muted p-4">
+                <ArrowLeftIcon className="size-8 text-muted-foreground/50 rotate-[225deg]" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium">No nodes yet</p>
+                <p className="text-xs text-muted-foreground">
+                  Add your first source to get started
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={handleAddSource}>
+                Add Source
+              </Button>
+            </div>
+          ) : (
+            <>
+              <LabCanvas nodes={nodes} treeId={treeId} />
+              <FloatingActionBar treeId={treeId} nodes={nodes} />
+
+              {/* Cancel generation button */}
+              {hasGeneratingNodes && (
+                <div className="absolute top-3 right-3 z-50">
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleCancelGeneration}
+                    disabled={cancelGeneration.isPending}
+                  >
+                    {cancelGeneration.isPending ? (
+                      <Loader2Icon className="mr-1.5 size-3.5 animate-spin" />
+                    ) : (
+                      <XIcon className="mr-1.5 size-3.5" />
+                    )}
+                    Cancel Generation
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
         </div>
         {selectedNode && (
           <div className="w-[400px] border-l">
-            <DetailPanel node={selectedNode} treeId={treeId} />
+            <DetailPanel node={selectedNode} treeId={treeId} allNodes={nodes} />
           </div>
         )}
       </div>

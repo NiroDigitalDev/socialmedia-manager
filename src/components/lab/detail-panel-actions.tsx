@@ -1,6 +1,6 @@
 "use client";
 
-import { CopyIcon, Trash2Icon } from "lucide-react";
+import { CopyIcon, Trash2Icon, UploadIcon, RefreshCwIcon, Loader2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -22,6 +22,7 @@ import {
   useGenerateOutlines,
   useGenerateImages,
   useGenerateCaptions,
+  useExportToGallery,
 } from "@/hooks/use-lab";
 import { useLabStore } from "@/stores/use-lab-store";
 import { ThumbsRating } from "./thumbs-rating";
@@ -42,12 +43,38 @@ const DEFAULT_COUNTS: Record<string, number> = {
   image: 3,
 };
 
+// ── Helpers ──────────────────────────────────────────────────────
+
+function getOutputText(output: unknown): string {
+  if (typeof output === "string") return output;
+  if (output && typeof output === "object" && "text" in output) {
+    return String((output as Record<string, unknown>).text ?? "");
+  }
+  return "";
+}
+
+/** Check if a caption node qualifies as an exportable post */
+function isExportablePost(node: LabNode, allNodes: LabNode[]): boolean {
+  if (node.layer !== "caption") return false;
+  if (node.status !== "completed") return false;
+  if (!getOutputText(node.output)) return false;
+  if (!node.parentId) return false;
+
+  const parent = allNodes.find((n) => n.id === node.parentId);
+  if (!parent) return false;
+  if (parent.status !== "completed") return false;
+  if (!parent.r2Key) return false;
+
+  return true;
+}
+
 interface DetailPanelActionsProps {
   node: LabNode;
   treeId: string;
+  allNodes: LabNode[];
 }
 
-export function DetailPanelActions({ node, treeId }: DetailPanelActionsProps) {
+export function DetailPanelActions({ node, treeId, allNodes }: DetailPanelActionsProps) {
   const selectNode = useLabStore((s) => s.selectNode);
 
   const rateNode = useRateNode();
@@ -57,6 +84,7 @@ export function DetailPanelActions({ node, treeId }: DetailPanelActionsProps) {
   const generateOutlines = useGenerateOutlines();
   const generateImages = useGenerateImages();
   const generateCaptions = useGenerateCaptions();
+  const exportToGallery = useExportToGallery();
 
   const nextLayerName = NEXT_LAYER[node.layer];
 
@@ -126,6 +154,42 @@ export function DetailPanelActions({ node, treeId }: DetailPanelActionsProps) {
     generateImages.isPending ||
     generateCaptions.isPending;
 
+  const canExport = isExportablePost(node, allNodes);
+
+  const handleExport = () => {
+    exportToGallery.mutate({ posts: [{ captionNodeId: node.id }] });
+  };
+
+  const handleRetry = () => {
+    if (!node.parentId) return;
+
+    const parent = allNodes.find((n) => n.id === node.parentId);
+    if (!parent) return;
+
+    // Re-generate from the parent based on parent's layer
+    if (parent.layer === "source") {
+      generateIdeas.mutate(
+        { sourceNodeId: parent.id, count: 1 },
+        { onSuccess: () => toast.success("Retrying generation...") },
+      );
+    } else if (parent.layer === "idea") {
+      generateOutlines.mutate(
+        { ideaNodeId: parent.id, count: 1 },
+        { onSuccess: () => toast.success("Retrying generation...") },
+      );
+    } else if (parent.layer === "outline") {
+      generateImages.mutate(
+        { outlineNodeId: parent.id, count: 1 },
+        { onSuccess: () => toast.success("Retrying generation...") },
+      );
+    } else if (parent.layer === "image") {
+      generateCaptions.mutate(
+        { imageNodeId: parent.id, count: 1 },
+        { onSuccess: () => toast.success("Retrying generation...") },
+      );
+    }
+  };
+
   return (
     <div className="space-y-3">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -137,6 +201,42 @@ export function DetailPanelActions({ node, treeId }: DetailPanelActionsProps) {
         <span className="text-sm text-muted-foreground">Rating</span>
         <ThumbsRating value={node.rating} onRate={handleRate} />
       </div>
+
+      {/* Export to Gallery (caption nodes that qualify as posts) */}
+      {canExport && (
+        <Button
+          variant="default"
+          size="sm"
+          className="w-full"
+          onClick={handleExport}
+          disabled={exportToGallery.isPending}
+        >
+          {exportToGallery.isPending ? (
+            <Loader2Icon className="mr-1.5 size-3.5 animate-spin" />
+          ) : (
+            <UploadIcon className="mr-1.5 size-3.5" />
+          )}
+          Export to Gallery
+        </Button>
+      )}
+
+      {/* Retry for failed nodes */}
+      {node.status === "failed" && node.parentId && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={handleRetry}
+          disabled={isGenerating}
+        >
+          {isGenerating ? (
+            <Loader2Icon className="mr-1.5 size-3.5 animate-spin" />
+          ) : (
+            <RefreshCwIcon className="mr-1.5 size-3.5" />
+          )}
+          Retry Generation
+        </Button>
+      )}
 
       {/* Generate next layer (not for captions) */}
       {nextLayerName && (

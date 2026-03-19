@@ -31,9 +31,10 @@ const STATUS_COLORS: Record<string, string> = {
 interface DetailPanelProps {
   node: LabNode;
   treeId: string;
+  allNodes: LabNode[];
 }
 
-export function DetailPanel({ node, treeId }: DetailPanelProps) {
+export function DetailPanel({ node, treeId, allNodes }: DetailPanelProps) {
   const selectNode = useLabStore((s) => s.selectNode);
   const updateNode = useUpdateNode();
 
@@ -98,7 +99,7 @@ export function DetailPanel({ node, treeId }: DetailPanelProps) {
           <Separator />
 
           {/* Actions */}
-          <DetailPanelActions node={node} treeId={treeId} />
+          <DetailPanelActions node={node} treeId={treeId} allNodes={allNodes} />
         </div>
       </ScrollArea>
     </div>
