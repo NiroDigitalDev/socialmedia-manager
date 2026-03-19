@@ -89,6 +89,7 @@ export function DetailPanel({ node, treeId }: DetailPanelProps) {
 
           {/* Prompts */}
           <DetailPanelPrompts
+            nodeId={node.id}
             systemPrompt={node.systemPrompt}
             contentPrompt={node.contentPrompt}
             onSave={handleSavePrompts}
