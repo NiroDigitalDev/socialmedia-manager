@@ -1,11 +1,14 @@
 "use client";
 
-import { use, useState, useEffect, useMemo, useCallback } from "react";
+import { use, useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTree, useTreeProgress } from "@/hooks/use-lab";
+import { useTRPC } from "@/lib/trpc/client";
 import { useLabStore } from "@/stores/use-lab-store";
 import { LabCanvas, type LabNode } from "@/components/lab/canvas";
 import { LayerNav } from "@/components/lab/layer-nav";
 import { DetailPanel } from "@/components/lab/detail-panel";
+import { FloatingActionBar } from "@/components/lab/floating-action-bar";
 import { SourceUploadDialog } from "@/components/lab/source-upload-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,6 +22,8 @@ export default function TreeCanvasPage({
 }) {
   const { id: projectId, treeId } = use(params);
 
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
   const { data: tree, isLoading, isError } = useTree(treeId);
   const selectedNodeId = useLabStore((s) => s.selectedNodeId);
   const reset = useLabStore((s) => s.reset);
@@ -31,7 +36,30 @@ export default function TreeCanvasPage({
   );
 
   // Poll for progress when nodes are generating
-  useTreeProgress(treeId, hasGeneratingNodes);
+  const { data: progressNodes } = useTreeProgress(treeId, hasGeneratingNodes);
+
+  // When progress data arrives with updated nodes, refetch the full tree
+  const prevProgressRef = useRef<string>("");
+  useEffect(() => {
+    if (!progressNodes || progressNodes.length === 0) return;
+    // Cast through unknown to avoid "excessively deep" Prisma type instantiation
+    const nodes = progressNodes as unknown as Array<{
+      id: string;
+      status: string;
+      r2Key: string | null;
+    }>;
+    // Build a fingerprint from progress data to detect real changes
+    const fingerprint = nodes
+      .map((n) => `${n.id}:${n.status}:${n.r2Key ?? ""}`)
+      .sort()
+      .join("|");
+    if (fingerprint !== prevProgressRef.current) {
+      prevProgressRef.current = fingerprint;
+      queryClient.invalidateQueries({
+        queryKey: trpc.lab.getTree.queryKey({ treeId }),
+      });
+    }
+  }, [progressNodes, queryClient, trpc, treeId]);
 
   // Reset lab store on mount/treeId change and on unmount
   useEffect(() => {
@@ -104,8 +132,9 @@ export default function TreeCanvasPage({
 
       {/* Canvas + Detail Panel */}
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1">
+        <div className="relative flex-1">
           <LabCanvas nodes={nodes} treeId={treeId} />
+          <FloatingActionBar treeId={treeId} nodes={nodes} />
         </div>
         {selectedNode && (
           <div className="w-[400px] border-l">
