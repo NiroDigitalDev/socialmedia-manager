@@ -1,8 +1,16 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, orgProtectedProcedure } from "../init";
-import { deleteFromR2 } from "@/lib/r2";
-import type { PrismaClient } from "@/generated/prisma/client";
+import { deleteFromR2, uploadToR2, fetchFromR2, publicUrl } from "@/lib/r2";
+import { geminiText, generateImage, type ModelKey, type AspectRatioKey } from "@/lib/gemini";
+import type { PrismaClient, Prisma } from "@/generated/prisma/client";
+import type { LabNodeLayer } from "@/generated/prisma/client";
+import pLimit from "p-limit";
+
+// ── Types ────────────────────────────────────────────────────────
+
+type NodeOutput = Record<string, unknown>;
+type JsonValue = Prisma.InputJsonValue;
 
 // ── Helpers ─────────────────────────────────────────────────────
 
@@ -28,6 +36,130 @@ async function batchDeleteR2(r2Keys: string[], context: string): Promise<void> {
     );
   }
 }
+
+/** Clean Gemini response that may contain markdown code fences */
+function cleanJsonResponse(text: string): string {
+  return text
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+}
+
+/** Parse JSON from Gemini response with error handling */
+function parseJsonResponse<T>(text: string, context: string): T {
+  const cleaned = cleanJsonResponse(text);
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: `Failed to parse AI response for ${context}. Please try again.`,
+    });
+  }
+}
+
+// ── Ancestor Context Builder ────────────────────────────────────
+
+/**
+ * Walk up the parentId chain from a node and build a JSON context snapshot
+ * appropriate for the node's layer.
+ *
+ * - Idea nodes:    { sourceText }
+ * - Outline nodes: { sourceText, ideaText }
+ * - Image nodes:   { ideaText, outlineSlides }
+ * - Caption nodes: { ideaText, outlineSlides, imageDescription }
+ */
+async function buildAncestorContext(
+  prisma: PrismaClient,
+  node: { id: string; parentId: string | null; layer: string; r2Key?: string | null },
+): Promise<Record<string, JsonValue>> {
+  // Collect ancestors by walking up
+  const ancestors: Array<{ id: string; parentId: string | null; layer: string; output: unknown; r2Key: string | null }> = [];
+  let currentParentId = node.parentId;
+
+  while (currentParentId) {
+    const parent = await prisma.labNode.findUnique({
+      where: { id: currentParentId },
+      select: { id: true, parentId: true, layer: true, output: true, r2Key: true },
+    });
+    if (!parent) break;
+    ancestors.push(parent);
+    currentParentId = parent.parentId;
+  }
+
+  // Helper to find an ancestor by layer
+  const findAncestor = (layer: string) => ancestors.find((a) => a.layer === layer);
+
+  const getOutputText = (ancestor: { output: unknown } | undefined): string => {
+    if (!ancestor) return "";
+    const output = ancestor.output as NodeOutput | null;
+    return (output?.text as string) ?? "";
+  };
+
+  const getOutputSlides = (ancestor: { output: unknown } | undefined): JsonValue[] => {
+    if (!ancestor) return [];
+    const output = ancestor.output as NodeOutput | null;
+    return (output?.slides as JsonValue[]) ?? [];
+  };
+
+  switch (node.layer) {
+    case "idea": {
+      const source = findAncestor("source");
+      return { sourceText: getOutputText(source) };
+    }
+    case "outline": {
+      const source = findAncestor("source");
+      const idea = findAncestor("idea");
+      return {
+        sourceText: getOutputText(source),
+        ideaText: getOutputText(idea),
+      };
+    }
+    case "image": {
+      const idea = findAncestor("idea");
+      const outline = findAncestor("outline");
+      return {
+        ideaText: getOutputText(idea),
+        outlineSlides: getOutputSlides(outline),
+      };
+    }
+    case "caption": {
+      const idea = findAncestor("idea");
+      const outline = findAncestor("outline");
+      // Image description will be added separately during caption generation
+      return {
+        ideaText: getOutputText(idea),
+        outlineSlides: getOutputSlides(outline),
+      };
+    }
+    default:
+      return {};
+  }
+}
+
+// ── Default System Prompts ──────────────────────────────────────
+
+const DEFAULT_PROMPTS = {
+  ideas: (count: number) =>
+    `You are a content strategist. Given the source text below, extract ${count} distinct content ideas for Instagram posts. Each idea should be a single focused concept. Return as a JSON array of strings.`,
+  outlines: (count: number) =>
+    `You are a content designer. Given the idea below, create ${count} structured Instagram post outline${count > 1 ? "s" : ""} with slide descriptions and layout notes. Return as a JSON array of objects, each with fields: slides (array of {title, description, layoutNotes}), overallTheme.`,
+  images:
+    "You are an expert visual designer creating Instagram post images. Create a visually striking, professional image based on the outline provided.",
+  captions:
+    "You are a social media copywriter. Write an engaging Instagram caption for the image described below, based on the outline content. Include relevant hashtags. Return the caption text only.",
+};
+
+// ── Layer mapping ───────────────────────────────────────────────
+
+/** Map from parent layer to child layer */
+const NEXT_LAYER: Record<string, LabNodeLayer> = {
+  source: "idea",
+  idea: "outline",
+  outline: "image",
+  image: "caption",
+};
 
 // ── Router ──────────────────────────────────────────────────────
 
@@ -355,6 +487,883 @@ export const labRouter = router({
       });
 
       return nodes;
+    }),
+
+  // ── Generation procedures ─────────────────────────────────────
+
+  generateIdeas: orgProtectedProcedure
+    .input(
+      z.object({
+        sourceNodeId: z.string(),
+        count: z.number().min(1).max(20).default(5),
+        systemPrompt: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Fetch source node and verify org
+      const sourceNode = await ctx.prisma.labNode.findUnique({
+        where: { id: input.sourceNodeId },
+        include: { tree: { select: { orgId: true } } },
+      });
+
+      if (!sourceNode || sourceNode.tree.orgId !== ctx.orgId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Source node not found" });
+      }
+
+      if (sourceNode.layer !== "source") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Node is not a source node" });
+      }
+
+      const sourceOutput = sourceNode.output as NodeOutput | null;
+      const sourceText = (sourceOutput?.text as string) ?? "";
+
+      if (!sourceText) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Source node has no text content" });
+      }
+
+      // Create N idea nodes with status "generating"
+      const nodeIds: string[] = [];
+      for (let i = 0; i < input.count; i++) {
+        const node = await ctx.prisma.labNode.create({
+          data: {
+            treeId: sourceNode.treeId,
+            parentId: input.sourceNodeId,
+            orgId: ctx.orgId,
+            layer: "idea",
+            status: "generating",
+            systemPrompt: input.systemPrompt ?? null,
+            ancestorContext: { sourceText },
+          },
+        });
+        nodeIds.push(node.id);
+      }
+
+      // Return IDs immediately
+      const result = { nodeIds };
+
+      // Fire-and-forget background generation
+      const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.ideas(input.count);
+      const contentPrompt = `${sysPrompt}\n\nSOURCE TEXT:\n"""\n${sourceText}\n"""`;
+
+      void (async () => {
+        try {
+          const text = await geminiText.generateContent(contentPrompt);
+          const ideas = parseJsonResponse<string[]>(text, "ideas");
+
+          for (let i = 0; i < nodeIds.length; i++) {
+            const nodeId = nodeIds[i];
+            try {
+              // Cancellation check
+              const current = await ctx.prisma.labNode.findUnique({ where: { id: nodeId } });
+              if (current?.status !== "generating") continue;
+
+              const ideaText = ideas[i] ?? ideas[i % ideas.length] ?? `Idea ${i + 1}`;
+              await ctx.prisma.labNode.update({
+                where: { id: nodeId },
+                data: {
+                  status: "completed",
+                  output: { text: ideaText },
+                  contentPrompt,
+                },
+              });
+            } catch {
+              await ctx.prisma.labNode.update({
+                where: { id: nodeId },
+                data: { status: "failed" },
+              });
+            }
+          }
+        } catch {
+          // If the entire generation fails, mark all nodes as failed
+          for (const nodeId of nodeIds) {
+            try {
+              await ctx.prisma.labNode.update({
+                where: { id: nodeId },
+                data: { status: "failed" },
+              });
+            } catch {
+              // Ignore individual update failures
+            }
+          }
+        }
+      })();
+
+      return result;
+    }),
+
+  generateOutlines: orgProtectedProcedure
+    .input(
+      z.object({
+        ideaNodeId: z.string(),
+        count: z.number().min(1).max(10).default(3),
+        systemPrompt: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Fetch idea node and verify org
+      const ideaNode = await ctx.prisma.labNode.findUnique({
+        where: { id: input.ideaNodeId },
+        include: { tree: { select: { orgId: true } } },
+      });
+
+      if (!ideaNode || ideaNode.tree.orgId !== ctx.orgId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Idea node not found" });
+      }
+
+      if (ideaNode.layer !== "idea") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Node is not an idea node" });
+      }
+
+      const ideaOutput = ideaNode.output as NodeOutput | null;
+      const ideaText = (ideaOutput?.text as string) ?? "";
+
+      if (!ideaText) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Idea node has no text content" });
+      }
+
+      // Build ancestor context
+      const ancestorContext = await buildAncestorContext(ctx.prisma, ideaNode);
+      const fullAncestorContext = { ...ancestorContext, ideaText };
+
+      // Create N outline nodes with status "generating"
+      const nodeIds: string[] = [];
+      for (let i = 0; i < input.count; i++) {
+        const node = await ctx.prisma.labNode.create({
+          data: {
+            treeId: ideaNode.treeId,
+            parentId: input.ideaNodeId,
+            orgId: ctx.orgId,
+            layer: "outline",
+            status: "generating",
+            systemPrompt: input.systemPrompt ?? null,
+            ancestorContext: fullAncestorContext,
+          },
+        });
+        nodeIds.push(node.id);
+      }
+
+      // Return IDs immediately
+      const result = { nodeIds };
+
+      // Fire-and-forget background generation
+      const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.outlines(input.count);
+      const contentPrompt = `${sysPrompt}\n\nIDEA:\n"""\n${ideaText}\n"""`;
+
+      void (async () => {
+        try {
+          const text = await geminiText.generateContent(contentPrompt);
+          const outlines = parseJsonResponse<Array<{ slides: unknown[]; overallTheme: string }>>(text, "outlines");
+
+          for (let i = 0; i < nodeIds.length; i++) {
+            const nodeId = nodeIds[i];
+            try {
+              // Cancellation check
+              const current = await ctx.prisma.labNode.findUnique({ where: { id: nodeId } });
+              if (current?.status !== "generating") continue;
+
+              const outline = outlines[i] ?? outlines[i % outlines.length] ?? { slides: [], overallTheme: "" };
+              await ctx.prisma.labNode.update({
+                where: { id: nodeId },
+                data: {
+                  status: "completed",
+                  output: { slides: outline.slides as JsonValue[], overallTheme: outline.overallTheme, text: outline.overallTheme } satisfies Record<string, JsonValue>,
+                  contentPrompt,
+                },
+              });
+            } catch {
+              await ctx.prisma.labNode.update({
+                where: { id: nodeId },
+                data: { status: "failed" },
+              });
+            }
+          }
+        } catch {
+          for (const nodeId of nodeIds) {
+            try {
+              await ctx.prisma.labNode.update({
+                where: { id: nodeId },
+                data: { status: "failed" },
+              });
+            } catch {
+              // Ignore
+            }
+          }
+        }
+      })();
+
+      return result;
+    }),
+
+  generateImages: orgProtectedProcedure
+    .input(
+      z.object({
+        outlineNodeId: z.string(),
+        count: z.number().min(1).max(10).default(3),
+        systemPrompt: z.string().optional(),
+        model: z.enum(["nano-banana-2", "nano-banana-pro"]).default("nano-banana-2"),
+        aspectRatio: z.enum(["3:4", "1:1", "4:5", "9:16"]).default("1:1"),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Fetch outline node and verify org
+      const outlineNode = await ctx.prisma.labNode.findUnique({
+        where: { id: input.outlineNodeId },
+        include: {
+          tree: {
+            select: {
+              orgId: true,
+              brandIdentityId: true,
+              brandIdentity: {
+                include: { palettes: true },
+              },
+            },
+          },
+        },
+      });
+
+      if (!outlineNode || outlineNode.tree.orgId !== ctx.orgId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Outline node not found" });
+      }
+
+      if (outlineNode.layer !== "outline") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Node is not an outline node" });
+      }
+
+      const outlineOutput = outlineNode.output as NodeOutput | null;
+      const outlineSlides = (outlineOutput?.slides as unknown[]) ?? [];
+      const overallTheme = (outlineOutput?.overallTheme as string) ?? "";
+
+      // Build ancestor context
+      const ancestorContext = await buildAncestorContext(ctx.prisma, outlineNode);
+
+      // Build brand context from tree's brand identity
+      let brandContext = "";
+      const brand = outlineNode.tree.brandIdentity;
+      if (brand) {
+        const parts: string[] = [];
+        if (brand.name) parts.push(`Brand: ${brand.name}`);
+        if (brand.tagline) parts.push(`Tagline: "${brand.tagline}"`);
+        if (brand.palettes.length > 0) {
+          const palette = brand.palettes[0];
+          parts.push(`Brand colors — Accent: ${palette.accentColor}, Background: ${palette.bgColor}`);
+        }
+        brandContext = parts.join(". ");
+      }
+
+      // Create N image nodes with status "generating"
+      const nodeIds: string[] = [];
+      for (let i = 0; i < input.count; i++) {
+        const node = await ctx.prisma.labNode.create({
+          data: {
+            treeId: outlineNode.treeId,
+            parentId: input.outlineNodeId,
+            orgId: ctx.orgId,
+            layer: "image",
+            status: "generating",
+            systemPrompt: input.systemPrompt ?? null,
+            ancestorContext,
+          },
+        });
+        nodeIds.push(node.id);
+      }
+
+      // Return IDs immediately
+      const result = { nodeIds };
+
+      // Fire-and-forget background generation with p-limit(5)
+      const limit = pLimit(5);
+      const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.images;
+
+      void (async () => {
+        const jobs = nodeIds.map((nodeId, i) =>
+          limit(async () => {
+            try {
+              // Cancellation check
+              const current = await ctx.prisma.labNode.findUnique({ where: { id: nodeId } });
+              if (current?.status !== "generating") return;
+
+              // Build image prompt
+              const slidesText = outlineSlides
+                .map((s, idx) => {
+                  const slide = s as { title?: string; description?: string; layoutNotes?: string };
+                  return `Slide ${idx + 1}: ${slide.title ?? ""} — ${slide.description ?? ""}${slide.layoutNotes ? ` (Layout: ${slide.layoutNotes})` : ""}`;
+                })
+                .join("\n");
+
+              const promptParts = [
+                sysPrompt,
+                overallTheme && `Theme: ${overallTheme}`,
+                slidesText && `Outline slides:\n${slidesText}`,
+                brandContext && `Brand context: ${brandContext}`,
+                input.count > 1 && `Variation ${i + 1} of ${input.count}: Make this visually distinct.`,
+              ].filter(Boolean);
+
+              const imagePrompt = promptParts.join("\n\n");
+
+              const imgResult = await generateImage(
+                imagePrompt,
+                input.model as ModelKey,
+                input.aspectRatio as AspectRatioKey,
+              );
+
+              // Upload to R2
+              const ext = imgResult.mimeType.split("/")[1] || "png";
+              const r2Key = `lab/${nodeId}/original.${ext}`;
+              const imageBuffer = Buffer.from(imgResult.base64, "base64");
+              await uploadToR2(r2Key, imageBuffer, imgResult.mimeType);
+
+              await ctx.prisma.labNode.update({
+                where: { id: nodeId },
+                data: {
+                  status: "completed",
+                  output: { url: publicUrl(r2Key) },
+                  r2Key,
+                  mimeType: imgResult.mimeType,
+                  contentPrompt: imagePrompt,
+                },
+              });
+            } catch {
+              try {
+                await ctx.prisma.labNode.update({
+                  where: { id: nodeId },
+                  data: { status: "failed" },
+                });
+              } catch {
+                // Ignore
+              }
+            }
+          })
+        );
+
+        await Promise.allSettled(jobs);
+      })();
+
+      return result;
+    }),
+
+  generateCaptions: orgProtectedProcedure
+    .input(
+      z.object({
+        imageNodeId: z.string(),
+        count: z.number().min(1).max(10).default(3),
+        systemPrompt: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Fetch image node and verify org
+      const imageNode = await ctx.prisma.labNode.findUnique({
+        where: { id: input.imageNodeId },
+        include: { tree: { select: { orgId: true } } },
+      });
+
+      if (!imageNode || imageNode.tree.orgId !== ctx.orgId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Image node not found" });
+      }
+
+      if (imageNode.layer !== "image") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Node is not an image node" });
+      }
+
+      // Build ancestor context
+      const ancestorContext = await buildAncestorContext(ctx.prisma, imageNode);
+
+      // Get image description via Gemini vision if the image node has an r2Key
+      let imageDescription = "";
+      if (imageNode.r2Key) {
+        try {
+          const { data: imageData, contentType } = await fetchFromR2(imageNode.r2Key);
+          imageDescription = await geminiText.generateContent([
+            { inlineData: { data: imageData.toString("base64"), mimeType: contentType } },
+            { text: "Describe this image in detail for a social media caption writer. Focus on visual elements, mood, and message." },
+          ]);
+        } catch {
+          // If vision fails, continue without image description
+          console.warn(`[lab.generateCaptions] Failed to get image description for node ${imageNode.id}`);
+        }
+      }
+
+      const fullAncestorContext = { ...ancestorContext, imageDescription };
+
+      // Create N caption nodes with status "generating"
+      const nodeIds: string[] = [];
+      for (let i = 0; i < input.count; i++) {
+        const node = await ctx.prisma.labNode.create({
+          data: {
+            treeId: imageNode.treeId,
+            parentId: input.imageNodeId,
+            orgId: ctx.orgId,
+            layer: "caption",
+            status: "generating",
+            systemPrompt: input.systemPrompt ?? null,
+            ancestorContext: fullAncestorContext,
+          },
+        });
+        nodeIds.push(node.id);
+      }
+
+      // Return IDs immediately
+      const result = { nodeIds };
+
+      // Fire-and-forget background generation with p-limit(10)
+      const limit = pLimit(10);
+      const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.captions;
+
+      // Build outline context from ancestor
+      const outlineSlides = (ancestorContext.outlineSlides as unknown[]) ?? [];
+      const slidesText = outlineSlides
+        .map((s, idx) => {
+          const slide = s as { title?: string; description?: string };
+          return `Slide ${idx + 1}: ${slide.title ?? ""} — ${slide.description ?? ""}`;
+        })
+        .join("\n");
+
+      void (async () => {
+        const jobs = nodeIds.map((nodeId, i) =>
+          limit(async () => {
+            try {
+              // Cancellation check
+              const current = await ctx.prisma.labNode.findUnique({ where: { id: nodeId } });
+              if (current?.status !== "generating") return;
+
+              const promptParts = [
+                sysPrompt,
+                slidesText && `Outline:\n${slidesText}`,
+                imageDescription && `Image description: ${imageDescription}`,
+                input.count > 1 && `Variation ${i + 1} of ${input.count}: Write a distinct caption variation.`,
+              ].filter(Boolean);
+
+              const contentPrompt = promptParts.join("\n\n");
+              const captionText = await geminiText.generateContent(contentPrompt);
+
+              await ctx.prisma.labNode.update({
+                where: { id: nodeId },
+                data: {
+                  status: "completed",
+                  output: { text: captionText.trim() },
+                  contentPrompt,
+                },
+              });
+            } catch {
+              try {
+                await ctx.prisma.labNode.update({
+                  where: { id: nodeId },
+                  data: { status: "failed" },
+                });
+              } catch {
+                // Ignore
+              }
+            }
+          })
+        );
+
+        await Promise.allSettled(jobs);
+      })();
+
+      return result;
+    }),
+
+  cancelGeneration: orgProtectedProcedure
+    .input(
+      z.object({
+        treeId: z.string(),
+        subtreeRootId: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify tree belongs to org
+      const tree = await ctx.prisma.labTree.findFirst({
+        where: { id: input.treeId, orgId: ctx.orgId },
+      });
+
+      if (!tree) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Tree not found" });
+      }
+
+      if (input.subtreeRootId) {
+        // Cancel only within the subtree
+        const descendantIds = await collectSubtreeIds(ctx.prisma, input.subtreeRootId);
+        const allIds = [input.subtreeRootId, ...descendantIds];
+
+        const result = await ctx.prisma.labNode.updateMany({
+          where: {
+            id: { in: allIds },
+            treeId: input.treeId,
+            status: "generating",
+          },
+          data: { status: "failed" },
+        });
+
+        return { cancelledCount: result.count };
+      } else {
+        // Cancel all generating nodes in the tree
+        const result = await ctx.prisma.labNode.updateMany({
+          where: {
+            treeId: input.treeId,
+            status: "generating",
+          },
+          data: { status: "failed" },
+        });
+
+        return { cancelledCount: result.count };
+      }
+    }),
+
+  // ── Batch generation ──────────────────────────────────────────
+
+  generateBatch: orgProtectedProcedure
+    .input(
+      z.object({
+        nodeIds: z.array(z.string()).min(1).max(50),
+        count: z.number().min(1).max(20).default(3),
+        systemPrompt: z.string().optional(),
+        model: z.enum(["nano-banana-2", "nano-banana-pro"]).default("nano-banana-2"),
+        aspectRatio: z.enum(["3:4", "1:1", "4:5", "9:16"]).default("1:1"),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Fetch all nodes and verify they belong to the same org and layer
+      const nodes = await ctx.prisma.labNode.findMany({
+        where: {
+          id: { in: input.nodeIds },
+        },
+        include: { tree: { select: { orgId: true } } },
+      });
+
+      if (nodes.length !== input.nodeIds.length) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Some nodes not found" });
+      }
+
+      // Verify org ownership
+      for (const node of nodes) {
+        if (node.tree.orgId !== ctx.orgId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Access denied to one or more nodes" });
+        }
+      }
+
+      // All nodes must be at the same layer
+      const layers = new Set(nodes.map((n) => n.layer));
+      if (layers.size !== 1) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "All nodes must be at the same layer for batch generation",
+        });
+      }
+
+      const layer = nodes[0].layer;
+      const nextLayer = NEXT_LAYER[layer];
+      if (!nextLayer) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Cannot generate children for ${layer} layer nodes`,
+        });
+      }
+
+      // For each node, call the appropriate generation based on layer
+      // We use the caller from this same router context
+      const allNodeIds: string[] = [];
+
+      // We build individual generation calls
+      // To avoid circular calls, we replicate the core logic inline
+      const limit = layer === "outline" ? pLimit(5) : pLimit(10);
+
+      for (const node of nodes) {
+        // Create child nodes
+        const childIds: string[] = [];
+        for (let i = 0; i < input.count; i++) {
+          const child = await ctx.prisma.labNode.create({
+            data: {
+              treeId: node.treeId,
+              parentId: node.id,
+              orgId: ctx.orgId,
+              layer: nextLayer,
+              status: "generating",
+              systemPrompt: input.systemPrompt ?? null,
+              ancestorContext: await buildAncestorContext(ctx.prisma, {
+                id: "temp",
+                parentId: node.id,
+                layer: nextLayer,
+              }),
+            },
+          });
+          childIds.push(child.id);
+        }
+        allNodeIds.push(...childIds);
+
+        // Fire-and-forget per-node generation
+        const nodeOutput = node.output as NodeOutput | null;
+
+        void (async () => {
+          try {
+            switch (layer) {
+              case "source": {
+                // Generate ideas
+                const sourceText = (nodeOutput?.text as string) ?? "";
+                const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.ideas(input.count);
+                const contentPrompt = `${sysPrompt}\n\nSOURCE TEXT:\n"""\n${sourceText}\n"""`;
+
+                const text = await geminiText.generateContent(contentPrompt);
+                const ideas = parseJsonResponse<string[]>(text, "batch-ideas");
+
+                for (let i = 0; i < childIds.length; i++) {
+                  try {
+                    const current = await ctx.prisma.labNode.findUnique({ where: { id: childIds[i] } });
+                    if (current?.status !== "generating") continue;
+                    const ideaText = ideas[i] ?? ideas[i % ideas.length] ?? `Idea ${i + 1}`;
+                    await ctx.prisma.labNode.update({
+                      where: { id: childIds[i] },
+                      data: { status: "completed", output: { text: ideaText }, contentPrompt },
+                    });
+                  } catch {
+                    await ctx.prisma.labNode.update({ where: { id: childIds[i] }, data: { status: "failed" } }).catch(() => {});
+                  }
+                }
+                break;
+              }
+              case "idea": {
+                // Generate outlines
+                const ideaText = (nodeOutput?.text as string) ?? "";
+                const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.outlines(input.count);
+                const contentPrompt = `${sysPrompt}\n\nIDEA:\n"""\n${ideaText}\n"""`;
+
+                const text = await geminiText.generateContent(contentPrompt);
+                const outlines = parseJsonResponse<Array<{ slides: unknown[]; overallTheme: string }>>(text, "batch-outlines");
+
+                for (let i = 0; i < childIds.length; i++) {
+                  try {
+                    const current = await ctx.prisma.labNode.findUnique({ where: { id: childIds[i] } });
+                    if (current?.status !== "generating") continue;
+                    const outline = outlines[i] ?? outlines[i % outlines.length] ?? { slides: [], overallTheme: "" };
+                    await ctx.prisma.labNode.update({
+                      where: { id: childIds[i] },
+                      data: {
+                        status: "completed",
+                        output: { slides: outline.slides as JsonValue[], overallTheme: outline.overallTheme, text: outline.overallTheme } satisfies Record<string, JsonValue>,
+                        contentPrompt,
+                      },
+                    });
+                  } catch {
+                    await ctx.prisma.labNode.update({ where: { id: childIds[i] }, data: { status: "failed" } }).catch(() => {});
+                  }
+                }
+                break;
+              }
+              case "outline": {
+                // Generate images
+                const outlineSlides = (nodeOutput?.slides as unknown[]) ?? [];
+                const overallTheme = (nodeOutput?.overallTheme as string) ?? "";
+
+                const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.images;
+                const slidesText = outlineSlides
+                  .map((s, idx) => {
+                    const slide = s as { title?: string; description?: string; layoutNotes?: string };
+                    return `Slide ${idx + 1}: ${slide.title ?? ""} — ${slide.description ?? ""}${slide.layoutNotes ? ` (Layout: ${slide.layoutNotes})` : ""}`;
+                  })
+                  .join("\n");
+
+                const jobs = childIds.map((childId, i) =>
+                  limit(async () => {
+                    try {
+                      const current = await ctx.prisma.labNode.findUnique({ where: { id: childId } });
+                      if (current?.status !== "generating") return;
+
+                      const promptParts = [
+                        sysPrompt,
+                        overallTheme && `Theme: ${overallTheme}`,
+                        slidesText && `Outline slides:\n${slidesText}`,
+                        input.count > 1 && `Variation ${i + 1} of ${input.count}: Make this visually distinct.`,
+                      ].filter(Boolean);
+                      const imagePrompt = promptParts.join("\n\n");
+
+                      const imgResult = await generateImage(imagePrompt, input.model as ModelKey, input.aspectRatio as AspectRatioKey);
+                      const ext = imgResult.mimeType.split("/")[1] || "png";
+                      const r2Key = `lab/${childId}/original.${ext}`;
+                      const imageBuffer = Buffer.from(imgResult.base64, "base64");
+                      await uploadToR2(r2Key, imageBuffer, imgResult.mimeType);
+
+                      await ctx.prisma.labNode.update({
+                        where: { id: childId },
+                        data: { status: "completed", output: { url: publicUrl(r2Key) }, r2Key, mimeType: imgResult.mimeType, contentPrompt: imagePrompt },
+                      });
+                    } catch {
+                      await ctx.prisma.labNode.update({ where: { id: childId }, data: { status: "failed" } }).catch(() => {});
+                    }
+                  })
+                );
+                await Promise.allSettled(jobs);
+                break;
+              }
+              case "image": {
+                // Generate captions
+                const ancestorCtx = await buildAncestorContext(ctx.prisma, node);
+                let imageDescription = "";
+                if (node.r2Key) {
+                  try {
+                    const { data: imageData, contentType } = await fetchFromR2(node.r2Key);
+                    imageDescription = await geminiText.generateContent([
+                      { inlineData: { data: imageData.toString("base64"), mimeType: contentType } },
+                      { text: "Describe this image in detail for a social media caption writer. Focus on visual elements, mood, and message." },
+                    ]);
+                  } catch {
+                    // Continue without image description
+                  }
+                }
+
+                const outlineSlidesCap = (ancestorCtx.outlineSlides as unknown[]) ?? [];
+                const slidesTextCap = outlineSlidesCap
+                  .map((s, idx) => {
+                    const slide = s as { title?: string; description?: string };
+                    return `Slide ${idx + 1}: ${slide.title ?? ""} — ${slide.description ?? ""}`;
+                  })
+                  .join("\n");
+
+                const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.captions;
+
+                const captionJobs = childIds.map((childId, i) =>
+                  limit(async () => {
+                    try {
+                      const current = await ctx.prisma.labNode.findUnique({ where: { id: childId } });
+                      if (current?.status !== "generating") return;
+
+                      const promptParts = [
+                        sysPrompt,
+                        slidesTextCap && `Outline:\n${slidesTextCap}`,
+                        imageDescription && `Image description: ${imageDescription}`,
+                        input.count > 1 && `Variation ${i + 1} of ${input.count}: Write a distinct caption variation.`,
+                      ].filter(Boolean);
+                      const contentPrompt = promptParts.join("\n\n");
+
+                      const captionText = await geminiText.generateContent(contentPrompt);
+                      await ctx.prisma.labNode.update({
+                        where: { id: childId },
+                        data: { status: "completed", output: { text: captionText.trim() }, contentPrompt },
+                      });
+                    } catch {
+                      await ctx.prisma.labNode.update({ where: { id: childId }, data: { status: "failed" } }).catch(() => {});
+                    }
+                  })
+                );
+                await Promise.allSettled(captionJobs);
+                break;
+              }
+            }
+          } catch {
+            for (const childId of childIds) {
+              await ctx.prisma.labNode.update({ where: { id: childId }, data: { status: "failed" } }).catch(() => {});
+            }
+          }
+        })();
+      }
+
+      return { nodeIds: allNodeIds };
+    }),
+
+  // ── AI Prompt Tweaking ────────────────────────────────────────
+
+  tweakPrompt: orgProtectedProcedure
+    .input(
+      z.object({
+        currentPrompt: z.string(),
+        instruction: z.string(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const prompt = `Here is a prompt:\n"""\n${input.currentPrompt}\n"""\n\nThe user wants to: ${input.instruction}\n\nReturn only the updated prompt text. Do not include any explanation or formatting — just the new prompt.`;
+
+      const updatedPrompt = await geminiText.generateContent(prompt);
+
+      return { prompt: updatedPrompt.trim() };
+    }),
+
+  // ── Export to Gallery ─────────────────────────────────────────
+
+  exportToGallery: orgProtectedProcedure
+    .input(
+      z.object({
+        posts: z.array(
+          z.object({
+            captionNodeId: z.string(),
+          })
+        ).min(1),
+        projectId: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const postIds: string[] = [];
+
+      for (const post of input.posts) {
+        // Fetch caption node
+        const captionNode = await ctx.prisma.labNode.findUnique({
+          where: { id: post.captionNodeId },
+          include: { tree: { select: { orgId: true } } },
+        });
+
+        if (!captionNode || captionNode.tree.orgId !== ctx.orgId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: `Caption node ${post.captionNodeId} not found` });
+        }
+
+        if (captionNode.layer !== "caption" || captionNode.status !== "completed") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Node ${post.captionNodeId} is not a completed caption node`,
+          });
+        }
+
+        // Fetch parent image node
+        if (!captionNode.parentId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Caption node has no parent image node" });
+        }
+
+        const imageNode = await ctx.prisma.labNode.findUnique({
+          where: { id: captionNode.parentId },
+        });
+
+        if (!imageNode || imageNode.layer !== "image" || imageNode.status !== "completed") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Parent image node not found or not completed",
+          });
+        }
+
+        if (!imageNode.r2Key) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Parent image node has no image file",
+          });
+        }
+
+        // Extract caption text
+        const captionOutput = captionNode.output as NodeOutput | null;
+        const captionText = (captionOutput?.text as string) ?? "";
+
+        // Create GeneratedPost
+        const generatedPost = await ctx.prisma.generatedPost.create({
+          data: {
+            prompt: captionText,
+            format: "static",
+            aspectRatio: "1:1",
+            model: "lab-export",
+            status: "completed",
+            description: captionText,
+            platform: "instagram",
+            orgId: ctx.orgId,
+            projectId: input.projectId ?? null,
+          },
+        });
+
+        // Create GeneratedImage referencing the R2 key (no blob)
+        await ctx.prisma.generatedImage.create({
+          data: {
+            postId: generatedPost.id,
+            slideNumber: 1,
+            r2Key: imageNode.r2Key,
+            mimeType: imageNode.mimeType ?? "image/png",
+          },
+        });
+
+        postIds.push(generatedPost.id);
+      }
+
+      return { postIds };
     }),
 });
 
