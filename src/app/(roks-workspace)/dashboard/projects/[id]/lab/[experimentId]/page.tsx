@@ -6,6 +6,7 @@ import { useLabStore } from "@/stores/use-lab-store";
 import { RunSidebar } from "@/components/lab/run-sidebar";
 import { ConfigureTab } from "@/components/lab/configure-tab";
 import { ResultsTab } from "@/components/lab/results-tab";
+import { ExportTab } from "@/components/lab/export-tab";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -208,9 +209,7 @@ export default function ExperimentWorkspacePage({
                 value="export"
                 className="flex-1 overflow-y-auto mt-0"
               >
-                <div className="flex items-center justify-center p-12 text-sm text-muted-foreground">
-                  Export tab coming soon
-                </div>
+                <ExportTab runId={selectedRunId} />
               </TabsContent>
             </Tabs>
           ) : (
