@@ -24,6 +24,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useTweakPrompt, useDuplicateNode, useUpdateNode } from "@/hooks/use-lab";
+import { useLabStore } from "@/stores/use-lab-store";
 
 interface DetailPanelPromptsProps {
   nodeId: string;
@@ -48,6 +49,7 @@ export function DetailPanelPrompts({
 
   const duplicateNode = useDuplicateNode();
   const updateNode = useUpdateNode();
+  const selectNode = useLabStore((s) => s.selectNode);
 
   const handleEdit = () => {
     setEditSystem(systemPrompt ?? "");
@@ -120,8 +122,10 @@ export function DetailPanelPrompts({
             },
             {
               onSuccess: () => {
+                // Auto-select the new node so the user sees it in the detail panel
+                selectNode(duplicate.id);
                 toast.success(
-                  "Created sibling node with updated prompts"
+                  "Sibling created with updated prompts — generate from the detail panel"
                 );
                 setTweakedSystem(null);
                 setTweakedContent(null);

@@ -2,12 +2,10 @@ import { create } from "zustand";
 
 interface LabStore {
   selectedNodeId: string | null;
-  panelOpen: boolean;
   showHidden: boolean; // show thumbs-downed nodes
   multiSelectIds: string[];
 
   selectNode: (id: string | null) => void;
-  togglePanel: () => void;
   toggleShowHidden: () => void;
   toggleMultiSelect: (id: string) => void;
   clearMultiSelect: () => void;
@@ -16,12 +14,10 @@ interface LabStore {
 
 export const useLabStore = create<LabStore>((set) => ({
   selectedNodeId: null,
-  panelOpen: false,
   showHidden: false,
   multiSelectIds: [],
 
   selectNode: (id) => set({ selectedNodeId: id }),
-  togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
   toggleShowHidden: () => set((s) => ({ showHidden: !s.showHidden })),
   toggleMultiSelect: (id) =>
     set((s) => ({
@@ -33,7 +29,6 @@ export const useLabStore = create<LabStore>((set) => ({
   reset: () =>
     set({
       selectedNodeId: null,
-      panelOpen: false,
       showHidden: false,
       multiSelectIds: [],
     }),

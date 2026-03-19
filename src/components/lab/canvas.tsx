@@ -1,13 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import {
   ReactFlow,
+  ReactFlowProvider,
   MiniMap,
   Controls,
   Background,
   useNodesState,
   useEdgesState,
+  useReactFlow,
   BackgroundVariant,
   type Node,
   type Edge,
@@ -87,16 +89,35 @@ function apiNodesToReactFlow(
 
 // ── Canvas component ─────────────────────────────────────────────
 
+export interface LabCanvasHandle {
+  fitToLayer: (layer: string) => void;
+}
+
 interface LabCanvasProps {
   nodes: LabNode[];
   treeId: string;
+  handleRef?: MutableRefObject<LabCanvasHandle | null>;
 }
 
-export function LabCanvas({ nodes: apiNodes, treeId }: LabCanvasProps) {
+/**
+ * Outer wrapper that provides ReactFlowProvider context.
+ * The actual canvas logic lives in LabCanvasInner which can use useReactFlow.
+ */
+export function LabCanvas(props: LabCanvasProps) {
+  return (
+    <ReactFlowProvider>
+      <LabCanvasInner {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+function LabCanvasInner({ nodes: apiNodes, treeId, handleRef }: LabCanvasProps) {
   const showHidden = useLabStore((s) => s.showHidden);
   const selectNode = useLabStore((s) => s.selectNode);
   const toggleMultiSelect = useLabStore((s) => s.toggleMultiSelect);
   const clearMultiSelect = useLabStore((s) => s.clearMultiSelect);
+
+  const { fitView } = useReactFlow<LabFlowNode>();
 
   const [rfNodes, setNodes, onNodesChange] = useNodesState<LabFlowNode>([]);
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -154,6 +175,29 @@ export function LabCanvas({ nodes: apiNodes, treeId }: LabCanvasProps) {
     // The layout is recomputed when the converted (API-derived) data changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convertedNodes, convertedEdges, setNodes, setEdges]);
+
+  // ── Expose fitToLayer via handleRef ─────────────────────────
+  // Keep rfNodes in a ref so the handle callback always sees the latest nodes
+  const rfNodesRef = useRef(rfNodes);
+  rfNodesRef.current = rfNodes;
+
+  useEffect(() => {
+    if (!handleRef) return;
+    handleRef.current = {
+      fitToLayer: (layer: string) => {
+        const layerNodeIds = rfNodesRef.current
+          .filter((n) => n.data.layer === layer)
+          .map((n) => ({ id: n.id }));
+
+        if (layerNodeIds.length > 0) {
+          fitView({ nodes: layerNodeIds, padding: 0.2, duration: 500 });
+        }
+      },
+    };
+    return () => {
+      if (handleRef) handleRef.current = null;
+    };
+  }, [handleRef, fitView]);
 
   // ── Selection handlers ───────────────────────────────────────
 

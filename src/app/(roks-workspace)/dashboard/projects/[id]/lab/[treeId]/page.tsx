@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useTree, useTreeProgress, useCancelGeneration } from "@/hooks/use-lab";
 import { useTRPC } from "@/lib/trpc/client";
 import { useLabStore } from "@/stores/use-lab-store";
-import { LabCanvas, type LabNode } from "@/components/lab/canvas";
+import { LabCanvas, type LabNode, type LabCanvasHandle } from "@/components/lab/canvas";
 import { LayerNav } from "@/components/lab/layer-nav";
 import { DetailPanel } from "@/components/lab/detail-panel";
 import { FloatingActionBar } from "@/components/lab/floating-action-bar";
@@ -30,6 +30,7 @@ export default function TreeCanvasPage({
   const selectedNodeId = useLabStore((s) => s.selectedNodeId);
   const reset = useLabStore((s) => s.reset);
   const [sourceDialogOpen, setSourceDialogOpen] = useState(false);
+  const canvasHandleRef = useRef<LabCanvasHandle | null>(null);
 
   // Determine if any nodes are currently generating for polling
   const hasGeneratingNodes = useMemo(
@@ -73,9 +74,8 @@ export default function TreeCanvasPage({
   const nodes: LabNode[] = (tree?.nodes as unknown as LabNode[]) ?? [];
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
 
-  const handleLayerClick = useCallback((_layer: string) => {
-    // Canvas auto-pan/zoom to layer will be implemented when
-    // reactFlowInstance is exposed from LabCanvas (Task 7+)
+  const handleLayerClick = useCallback((layer: string) => {
+    canvasHandleRef.current?.fitToLayer(layer);
   }, []);
 
   const handleAddSource = useCallback(() => {
@@ -165,7 +165,7 @@ export default function TreeCanvasPage({
             </div>
           ) : (
             <>
-              <LabCanvas nodes={nodes} treeId={treeId} />
+              <LabCanvas nodes={nodes} treeId={treeId} handleRef={canvasHandleRef} />
               <FloatingActionBar treeId={treeId} nodes={nodes} />
 
               {/* Cancel generation button */}
