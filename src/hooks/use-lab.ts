@@ -41,12 +41,14 @@ export function useRun(runId: string | undefined) {
 
 export function useRunConcepts(
   runId: string | undefined,
-  conceptId?: string
+  conceptId?: string,
+  pollWhileGenerating?: boolean
 ) {
   const trpc = useTRPC();
   return useQuery({
     ...trpc.lab.getRunConcepts.queryOptions({ runId: runId!, conceptId }),
     enabled: !!runId,
+    refetchInterval: pollWhileGenerating ? 3000 : false,
   });
 }
 

@@ -64,9 +64,11 @@ export function ResultsTab({ runId }: ResultsTabProps) {
   );
 
   // Get concept list (always fetch without conceptId for the tab list)
+  // Poll every 2s while generating so concepts appear as they're created
   const { data: conceptListData, isLoading: conceptsLoading } = useRunConcepts(
     runId,
-    undefined
+    undefined,
+    isGenerating
   );
 
   const cancelRun = useCancelRun();
@@ -99,9 +101,9 @@ export function ResultsTab({ runId }: ResultsTabProps) {
   // Auto-select first concept when data loads
   const effectiveConceptId = selectedConceptId ?? conceptList[0]?.id;
 
-  // Fetch selected concept data
+  // Fetch selected concept data (poll while generating for live updates)
   const { data: selectedConceptData, isLoading: selectedConceptLoading } =
-    useRunConcepts(runId, effectiveConceptId);
+    useRunConcepts(runId, effectiveConceptId, isGenerating);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const selectedConceptRaw = selectedConceptData as any;
