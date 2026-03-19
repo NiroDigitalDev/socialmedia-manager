@@ -22,6 +22,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { Loader2Icon, XCircleIcon } from "lucide-react";
+import { PipelineTweaker } from "@/components/lab/pipeline-tweaker";
 
 interface ResultsTabProps {
   runId: string;
@@ -73,8 +74,9 @@ export function ResultsTab({ runId }: ResultsTabProps) {
   const rateCaption = useRateCaptionVariation();
   const retryVariation = useRetryVariation();
 
-  // For "Edit & Re-run" — just store the variation ID for now (Task 11 will use this)
-  const [, setEditVariationId] = useState<string | null>(null);
+  // For "Edit & Re-run" — Pipeline Tweaker state
+  const [editVariationId, setEditVariationId] = useState<string | null>(null);
+  const [editVariationType, setEditVariationType] = useState<"image" | "caption">("image");
 
   // Derive concept list
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -264,14 +266,27 @@ export function ResultsTab({ runId }: ResultsTabProps) {
                 onRetryCaption={(variationId) =>
                   retryVariation.mutate({ variationId, type: "caption" })
                 }
-                onEditVariation={(variationId) =>
-                  setEditVariationId(variationId)
-                }
+                onEditVariation={(variationId, type) => {
+                  setEditVariationId(variationId);
+                  setEditVariationType(type);
+                }}
               />
             )}
           </TabsContent>
         ))}
       </Tabs>
+
+      {/* Pipeline Tweaker drawer */}
+      {editVariationId && run.experimentId && (
+        <PipelineTweaker
+          open={!!editVariationId}
+          onClose={() => setEditVariationId(null)}
+          variationId={editVariationId}
+          variationType={editVariationType}
+          runId={runId}
+          experimentId={run.experimentId}
+        />
+      )}
     </div>
   );
 }
@@ -329,7 +344,7 @@ interface ConceptContentProps {
   onRateCaption: (variationId: string, rating: number, comment?: string) => void;
   onRetryImage: (variationId: string) => void;
   onRetryCaption: (variationId: string) => void;
-  onEditVariation: (variationId: string) => void;
+  onEditVariation: (variationId: string, type: "image" | "caption") => void;
 }
 
 function ConceptContent({
@@ -425,7 +440,7 @@ function ConceptContent({
                 onRate={(rating, comment) =>
                   onRateImage(variation.id, rating, comment)
                 }
-                onEdit={() => onEditVariation(variation.id)}
+                onEdit={() => onEditVariation(variation.id, "image")}
                 onRetry={() => onRetryImage(variation.id)}
               />
             ))}
@@ -449,7 +464,7 @@ function ConceptContent({
                 onRate={(rating, comment) =>
                   onRateCaption(variation.id, rating, comment)
                 }
-                onEdit={() => onEditVariation(variation.id)}
+                onEdit={() => onEditVariation(variation.id, "caption")}
                 onRetry={() => onRetryCaption(variation.id)}
               />
             ))}
