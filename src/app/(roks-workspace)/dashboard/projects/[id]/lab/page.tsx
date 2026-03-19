@@ -2,12 +2,12 @@
 
 import { use, useState } from "react";
 import {
-  useExperiments,
-  useCreateExperiment,
-  useDeleteExperiment,
+  useTrees,
+  useCreateTree,
+  useDeleteTree,
 } from "@/hooks/use-lab";
 import { useBrandIdentities } from "@/hooks/use-brand-identities";
-import { ExperimentCard } from "@/components/lab/experiment-card";
+import { TreeCard } from "@/components/lab/tree-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/select";
 import {
   PlusIcon,
-  TestTubeDiagonalIcon,
+  TreePineIcon,
   Loader2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -42,10 +42,10 @@ export default function LabPage({
   const { id: projectId } = use(params);
   const router = useRouter();
 
-  const { data: experiments, isLoading, isError } = useExperiments(projectId);
+  const { data: trees, isLoading, isError } = useTrees(projectId);
   const { data: brandIdentities } = useBrandIdentities(projectId);
-  const createExperiment = useCreateExperiment();
-  const deleteExperiment = useDeleteExperiment();
+  const createTree = useCreateTree();
+  const deleteTree = useDeleteTree();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -62,7 +62,7 @@ export default function LabPage({
       return;
     }
 
-    createExperiment.mutate(
+    createTree.mutate(
       {
         name: newName.trim(),
         projectId,
@@ -70,7 +70,7 @@ export default function LabPage({
       },
       {
         onSuccess: (data) => {
-          toast.success("Experiment created");
+          toast.success("Tree created");
           resetForm();
           setCreateOpen(false);
           router.push(
@@ -78,18 +78,18 @@ export default function LabPage({
           );
         },
         onError: (err) =>
-          toast.error(err.message ?? "Failed to create experiment"),
+          toast.error(err.message ?? "Failed to create tree"),
       }
     );
   };
 
   const handleDelete = (id: string) => {
-    deleteExperiment.mutate(
-      { id },
+    deleteTree.mutate(
+      { treeId: id },
       {
-        onSuccess: () => toast.success("Experiment deleted"),
+        onSuccess: () => toast.success("Tree deleted"),
         onError: (err) =>
-          toast.error(err.message ?? "Failed to delete experiment"),
+          toast.error(err.message ?? "Failed to delete tree"),
       }
     );
   };
@@ -108,7 +108,7 @@ export default function LabPage({
           className="gap-1.5"
         >
           <PlusIcon className="size-3.5" />
-          New Experiment
+          New Tree
         </Button>
       </div>
 
@@ -116,7 +116,7 @@ export default function LabPage({
       {isError && (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
           <p className="text-sm text-muted-foreground">
-            Failed to load experiments. Please try again.
+            Failed to load trees. Please try again.
           </p>
           <Button variant="outline" onClick={() => window.location.reload()}>
             Retry
@@ -138,18 +138,17 @@ export default function LabPage({
       )}
 
       {/* Empty state */}
-      {!isError && !isLoading && experiments && experiments.length === 0 && (
+      {!isError && !isLoading && trees && trees.length === 0 && (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 py-16">
           <div className="flex size-16 items-center justify-center rounded-2xl bg-muted">
-            <TestTubeDiagonalIcon className="size-8 text-muted-foreground/40" />
+            <TreePineIcon className="size-8 text-muted-foreground/40" />
           </div>
           <div className="text-center">
             <p className="text-sm font-medium text-muted-foreground">
-              No experiments yet
+              No trees yet
             </p>
             <p className="mt-1 text-xs text-muted-foreground/60">
-              Create one to start testing different content and style
-              combinations.
+              Create one to start building content generation pipelines.
             </p>
           </div>
           <Button
@@ -161,29 +160,29 @@ export default function LabPage({
             className="gap-1.5"
           >
             <PlusIcon className="size-3.5" />
-            New Experiment
+            New Tree
           </Button>
         </div>
       )}
 
-      {/* Experiment cards grid */}
-      {!isError && !isLoading && experiments && experiments.length > 0 && (
+      {/* Tree cards grid */}
+      {!isError && !isLoading && trees && trees.length > 0 && (
         <div className="@container/main">
           <div className="grid gap-4 grid-cols-1 @xl/main:grid-cols-2 @3xl/main:grid-cols-3 @5xl/main:grid-cols-4">
-            {experiments.map((experiment) => (
-              <ExperimentCard
-                key={experiment.id}
-                experiment={experiment}
+            {trees.map((tree) => (
+              <TreeCard
+                key={tree.id}
+                tree={tree}
                 projectId={projectId}
                 onDelete={handleDelete}
-                isDeleting={deleteExperiment.isPending}
+                isDeleting={deleteTree.isPending}
               />
             ))}
           </div>
         </div>
       )}
 
-      {/* Create Experiment Dialog */}
+      {/* Create Tree Dialog */}
       <Dialog
         open={createOpen}
         onOpenChange={(open) => {
@@ -193,18 +192,18 @@ export default function LabPage({
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>New Experiment</DialogTitle>
+            <DialogTitle>New Tree</DialogTitle>
             <DialogDescription>
-              Create an experiment to test different content and style
-              combinations.
+              Create a tree to build content generation pipelines from sources to
+              posts.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 mt-2">
             <div className="space-y-2">
-              <Label htmlFor="experiment-name">Name</Label>
+              <Label htmlFor="tree-name">Name</Label>
               <Input
-                id="experiment-name"
-                placeholder="e.g. Q1 Campaign Test"
+                id="tree-name"
+                placeholder="e.g. Q1 Campaign"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => {
@@ -216,12 +215,12 @@ export default function LabPage({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="experiment-brand">
+              <Label htmlFor="tree-brand">
                 Brand Identity{" "}
                 <span className="text-muted-foreground">(optional)</span>
               </Label>
               <Select value={newBrandId} onValueChange={setNewBrandId}>
-                <SelectTrigger id="experiment-brand">
+                <SelectTrigger id="tree-brand">
                   <SelectValue placeholder="Select a brand identity" />
                 </SelectTrigger>
                 <SelectContent>
@@ -248,10 +247,10 @@ export default function LabPage({
               </Button>
               <Button
                 onClick={handleCreate}
-                disabled={createExperiment.isPending || !newName.trim()}
+                disabled={createTree.isPending || !newName.trim()}
                 className="flex-1 gap-1.5"
               >
-                {createExperiment.isPending && (
+                {createTree.isPending && (
                   <Loader2Icon className="size-3.5 animate-spin" />
                 )}
                 Create
