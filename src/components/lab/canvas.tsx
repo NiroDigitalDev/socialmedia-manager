@@ -9,18 +9,20 @@ import {
   useNodesState,
   useEdgesState,
   BackgroundVariant,
-  Handle,
-  Position,
   type Node,
   type Edge,
   type NodeTypes,
   type NodeMouseHandler,
-  type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
 import { useLabStore } from "@/stores/use-lab-store";
 import { computeTreeLayout } from "./layout";
+import { SourceNode } from "./nodes/source-node";
+import { IdeaNode } from "./nodes/idea-node";
+import { OutlineNode } from "./nodes/outline-node";
+import { ImageNode } from "./nodes/image-node";
+import { CaptionNode } from "./nodes/caption-node";
 
 // ── API types (matches getTree tRPC return) ──────────────────────
 
@@ -42,36 +44,14 @@ export interface LabNode {
 /** React Flow node parameterised with LabNode data */
 type LabFlowNode = Node<LabNode>;
 
-// ── Placeholder node (replaced in Task 7) ────────────────────────
-
-function PlaceholderNode({ data }: NodeProps<LabFlowNode>) {
-  return (
-    <div
-      className="rounded-lg border bg-card p-3 text-xs shadow-sm"
-      style={{ width: 180 }}
-    >
-      <Handle
-        type="target"
-        position={Position.Top}
-        className="!bg-primary"
-      />
-      <div className="font-medium capitalize">{data.layer}</div>
-      <div className="text-muted-foreground truncate">{data.status}</div>
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        className="!bg-primary"
-      />
-    </div>
-  );
-}
+// ── Custom node types ─────────────────────────────────────────────
 
 const nodeTypes: NodeTypes = {
-  source: PlaceholderNode,
-  idea: PlaceholderNode,
-  outline: PlaceholderNode,
-  image: PlaceholderNode,
-  caption: PlaceholderNode,
+  source: SourceNode,
+  idea: IdeaNode,
+  outline: OutlineNode,
+  image: ImageNode,
+  caption: CaptionNode,
 };
 
 // ── Conversion helpers ───────────────────────────────────────────
