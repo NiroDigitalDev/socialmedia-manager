@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createWebPPreview } from "@/lib/image-processing";
+import { publicUrl } from "@/lib/r2";
 
 // Serves images from StoredImage or GeneratedImage tables
 // Usage: /api/images/[id]?type=stored|generated&format=webp&w=480
@@ -21,6 +22,17 @@ export async function GET(
       const image = await prisma.generatedImage.findUnique({ where: { id } });
       if (!image) {
         return NextResponse.json({ error: "Image not found" }, { status: 404 });
+      }
+
+      // Prefer R2 if available
+      if (image.r2Key) {
+        const r2Url = publicUrl(image.r2Key);
+        return NextResponse.redirect(r2Url, 302);
+      }
+
+      // Legacy fallback: serve from DB bytes
+      if (!image.data) {
+        return NextResponse.json({ error: "No image data" }, { status: 404 });
       }
       data = Buffer.from(image.data);
       mimeType = image.mimeType;

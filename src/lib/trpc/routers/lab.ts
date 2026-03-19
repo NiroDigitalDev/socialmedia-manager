@@ -1747,4 +1747,128 @@ export const labRouter = router({
       // 11. Return runId immediately
       return { runId: input.runId };
     }),
+
+  // ── Export to Gallery ──────────────────────────────────────────
+
+  exportToGallery: orgProtectedProcedure
+    .input(
+      z.object({
+        exports: z.array(
+          z.object({
+            conceptId: z.string(),
+            imageVariationId: z.string(),
+            captionVariationId: z.string(),
+          })
+        ),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const postIds: string[] = [];
+
+      for (const entry of input.exports) {
+        // 1. Fetch the concept and verify it belongs to a run owned by this org
+        const concept = await ctx.prisma.runConcept.findUnique({
+          where: { id: entry.conceptId },
+          include: {
+            run: {
+              include: {
+                experiment: {
+                  select: { orgId: true, projectId: true },
+                },
+              },
+            },
+          },
+        });
+
+        if (!concept || concept.run.experiment.orgId !== ctx.orgId) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: `Concept ${entry.conceptId} not found or access denied`,
+          });
+        }
+
+        // 2. Verify imageVariationId belongs to this concept
+        const imageVariation = await ctx.prisma.imageVariation.findUnique({
+          where: { id: entry.imageVariationId },
+          select: { id: true, conceptId: true, r2Key: true, mimeType: true },
+        });
+
+        if (!imageVariation || imageVariation.conceptId !== entry.conceptId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Image variation ${entry.imageVariationId} does not belong to concept ${entry.conceptId}`,
+          });
+        }
+
+        // 3. Verify captionVariationId belongs to this concept
+        const captionVariation = await ctx.prisma.captionVariation.findUnique({
+          where: { id: entry.captionVariationId },
+          select: { id: true, conceptId: true, text: true },
+        });
+
+        if (!captionVariation || captionVariation.conceptId !== entry.conceptId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Caption variation ${entry.captionVariationId} does not belong to concept ${entry.conceptId}`,
+          });
+        }
+
+        if (!imageVariation.r2Key) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `Image variation ${entry.imageVariationId} has no generated image (missing r2Key)`,
+          });
+        }
+
+        if (!captionVariation.text) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `Caption variation ${entry.captionVariationId} has no generated text`,
+          });
+        }
+
+        // 4. Parse run settings to get model/aspectRatio for the GeneratedPost
+        const settings = runSettingsSchema.parse(concept.run.settingsSnapshot);
+
+        // 5. Create GeneratedPost
+        const post = await ctx.prisma.generatedPost.create({
+          data: {
+            prompt: concept.imagePrompt,
+            format: "carousel",
+            aspectRatio: settings.aspectRatio,
+            model: settings.model,
+            status: "completed",
+            description: captionVariation.text,
+            platform: "instagram",
+            orgId: ctx.orgId,
+            projectId: concept.run.experiment.projectId,
+          },
+        });
+
+        // 6. Create GeneratedImage pointing to the Lab image via r2Key
+        await ctx.prisma.generatedImage.create({
+          data: {
+            postId: post.id,
+            slideNumber: 1,
+            r2Key: imageVariation.r2Key,
+            mimeType: imageVariation.mimeType ?? "image/png",
+          },
+        });
+
+        // 7. Create RunExport record
+        await ctx.prisma.runExport.create({
+          data: {
+            runId: concept.runId,
+            conceptId: entry.conceptId,
+            imageVariationId: entry.imageVariationId,
+            captionVariationId: entry.captionVariationId,
+            generatedPostId: post.id,
+          },
+        });
+
+        postIds.push(post.id);
+      }
+
+      return { postIds };
+    }),
 });
