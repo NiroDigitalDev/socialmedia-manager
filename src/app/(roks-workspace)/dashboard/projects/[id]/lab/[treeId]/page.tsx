@@ -5,6 +5,7 @@ import { useTree, useTreeProgress } from "@/hooks/use-lab";
 import { useLabStore } from "@/stores/use-lab-store";
 import { LabCanvas, type LabNode } from "@/components/lab/canvas";
 import { LayerNav } from "@/components/lab/layer-nav";
+import { DetailPanel } from "@/components/lab/detail-panel";
 import { SourceUploadDialog } from "@/components/lab/source-upload-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,6 +20,7 @@ export default function TreeCanvasPage({
   const { id: projectId, treeId } = use(params);
 
   const { data: tree, isLoading, isError } = useTree(treeId);
+  const selectedNodeId = useLabStore((s) => s.selectedNodeId);
   const reset = useLabStore((s) => s.reset);
   const [sourceDialogOpen, setSourceDialogOpen] = useState(false);
 
@@ -39,6 +41,7 @@ export default function TreeCanvasPage({
 
   // Cast via unknown to avoid "excessively deep" type instantiation from Prisma
   const nodes: LabNode[] = (tree?.nodes as unknown as LabNode[]) ?? [];
+  const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
 
   const handleLayerClick = useCallback((_layer: string) => {
     // Canvas auto-pan/zoom to layer will be implemented when
@@ -99,9 +102,16 @@ export default function TreeCanvasPage({
         onAddSource={handleAddSource}
       />
 
-      {/* Canvas */}
-      <div className="flex-1 overflow-hidden">
-        <LabCanvas nodes={nodes} treeId={treeId} />
+      {/* Canvas + Detail Panel */}
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex-1">
+          <LabCanvas nodes={nodes} treeId={treeId} />
+        </div>
+        {selectedNode && (
+          <div className="w-[400px] border-l">
+            <DetailPanel node={selectedNode} treeId={treeId} />
+          </div>
+        )}
       </div>
 
       {/* Source upload dialog */}
