@@ -37,6 +37,19 @@ async function batchDeleteR2(r2Keys: string[], context: string): Promise<void> {
   }
 }
 
+/** Retry an async function with exponential backoff */
+async function withRetry<T>(fn: () => Promise<T>, retries = 2, baseDelay = 1000): Promise<T> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (attempt === retries) throw error;
+      await new Promise(resolve => setTimeout(resolve, baseDelay * Math.pow(2, attempt)));
+    }
+  }
+  throw new Error("Unreachable");
+}
+
 /** Clean Gemini response that may contain markdown code fences */
 function cleanJsonResponse(text: string): string {
   return text
@@ -521,74 +534,33 @@ export const labRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Source node has no text content" });
       }
 
-      // Create N idea nodes with status "generating"
+      // Call Gemini first, then create one node per actual idea returned
+      const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.ideas(input.count);
+      const contentPrompt = `${sysPrompt}\n\nSOURCE TEXT:\n"""\n${sourceText}\n"""`;
+
+      const text = await withRetry(() => geminiText.generateContent(contentPrompt));
+      const ideas = parseJsonResponse<string[]>(text, "ideas");
+
+      // Create one node per actual idea returned (no duplicates)
       const nodeIds: string[] = [];
-      for (let i = 0; i < input.count; i++) {
+      for (const ideaText of ideas) {
         const node = await ctx.prisma.labNode.create({
           data: {
             treeId: sourceNode.treeId,
             parentId: input.sourceNodeId,
             orgId: ctx.orgId,
             layer: "idea",
-            status: "generating",
+            status: "completed",
             systemPrompt: input.systemPrompt ?? null,
             ancestorContext: { sourceText },
+            output: { text: ideaText },
+            contentPrompt,
           },
         });
         nodeIds.push(node.id);
       }
 
-      // Return IDs immediately
-      const result = { nodeIds };
-
-      // Fire-and-forget background generation
-      const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.ideas(input.count);
-      const contentPrompt = `${sysPrompt}\n\nSOURCE TEXT:\n"""\n${sourceText}\n"""`;
-
-      void (async () => {
-        try {
-          const text = await geminiText.generateContent(contentPrompt);
-          const ideas = parseJsonResponse<string[]>(text, "ideas");
-
-          for (let i = 0; i < nodeIds.length; i++) {
-            const nodeId = nodeIds[i];
-            try {
-              // Cancellation check
-              const current = await ctx.prisma.labNode.findUnique({ where: { id: nodeId } });
-              if (current?.status !== "generating") continue;
-
-              const ideaText = ideas[i] ?? ideas[i % ideas.length] ?? `Idea ${i + 1}`;
-              await ctx.prisma.labNode.update({
-                where: { id: nodeId },
-                data: {
-                  status: "completed",
-                  output: { text: ideaText },
-                  contentPrompt,
-                },
-              });
-            } catch {
-              await ctx.prisma.labNode.update({
-                where: { id: nodeId },
-                data: { status: "failed" },
-              });
-            }
-          }
-        } catch {
-          // If the entire generation fails, mark all nodes as failed
-          for (const nodeId of nodeIds) {
-            try {
-              await ctx.prisma.labNode.update({
-                where: { id: nodeId },
-                data: { status: "failed" },
-              });
-            } catch {
-              // Ignore individual update failures
-            }
-          }
-        }
-      })();
-
-      return result;
+      return { nodeIds };
     }),
 
   generateOutlines: orgProtectedProcedure
@@ -625,73 +597,33 @@ export const labRouter = router({
       const ancestorContext = await buildAncestorContext(ctx.prisma, ideaNode);
       const fullAncestorContext = { ...ancestorContext, ideaText };
 
-      // Create N outline nodes with status "generating"
+      // Call Gemini first, then create one node per actual outline returned
+      const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.outlines(input.count);
+      const contentPrompt = `${sysPrompt}\n\nIDEA:\n"""\n${ideaText}\n"""`;
+
+      const text = await withRetry(() => geminiText.generateContent(contentPrompt));
+      const outlines = parseJsonResponse<Array<{ slides: unknown[]; overallTheme: string }>>(text, "outlines");
+
+      // Create one node per actual outline returned (no duplicates)
       const nodeIds: string[] = [];
-      for (let i = 0; i < input.count; i++) {
+      for (const outline of outlines) {
         const node = await ctx.prisma.labNode.create({
           data: {
             treeId: ideaNode.treeId,
             parentId: input.ideaNodeId,
             orgId: ctx.orgId,
             layer: "outline",
-            status: "generating",
+            status: "completed",
             systemPrompt: input.systemPrompt ?? null,
             ancestorContext: fullAncestorContext,
+            output: { slides: outline.slides as JsonValue[], overallTheme: outline.overallTheme, text: outline.overallTheme } satisfies Record<string, JsonValue>,
+            contentPrompt,
           },
         });
         nodeIds.push(node.id);
       }
 
-      // Return IDs immediately
-      const result = { nodeIds };
-
-      // Fire-and-forget background generation
-      const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.outlines(input.count);
-      const contentPrompt = `${sysPrompt}\n\nIDEA:\n"""\n${ideaText}\n"""`;
-
-      void (async () => {
-        try {
-          const text = await geminiText.generateContent(contentPrompt);
-          const outlines = parseJsonResponse<Array<{ slides: unknown[]; overallTheme: string }>>(text, "outlines");
-
-          for (let i = 0; i < nodeIds.length; i++) {
-            const nodeId = nodeIds[i];
-            try {
-              // Cancellation check
-              const current = await ctx.prisma.labNode.findUnique({ where: { id: nodeId } });
-              if (current?.status !== "generating") continue;
-
-              const outline = outlines[i] ?? outlines[i % outlines.length] ?? { slides: [], overallTheme: "" };
-              await ctx.prisma.labNode.update({
-                where: { id: nodeId },
-                data: {
-                  status: "completed",
-                  output: { slides: outline.slides as JsonValue[], overallTheme: outline.overallTheme, text: outline.overallTheme } satisfies Record<string, JsonValue>,
-                  contentPrompt,
-                },
-              });
-            } catch {
-              await ctx.prisma.labNode.update({
-                where: { id: nodeId },
-                data: { status: "failed" },
-              });
-            }
-          }
-        } catch {
-          for (const nodeId of nodeIds) {
-            try {
-              await ctx.prisma.labNode.update({
-                where: { id: nodeId },
-                data: { status: "failed" },
-              });
-            } catch {
-              // Ignore
-            }
-          }
-        }
-      })();
-
-      return result;
+      return { nodeIds };
     }),
 
   generateImages: orgProtectedProcedure
@@ -800,11 +732,11 @@ export const labRouter = router({
 
               const imagePrompt = promptParts.join("\n\n");
 
-              const imgResult = await generateImage(
+              const imgResult = await withRetry(() => generateImage(
                 imagePrompt,
                 input.model as ModelKey,
                 input.aspectRatio as AspectRatioKey,
-              );
+              ));
 
               // Upload to R2
               const ext = imgResult.mimeType.split("/")[1] || "png";
@@ -872,10 +804,10 @@ export const labRouter = router({
       if (imageNode.r2Key) {
         try {
           const { data: imageData, contentType } = await fetchFromR2(imageNode.r2Key);
-          imageDescription = await geminiText.generateContent([
+          imageDescription = await withRetry(() => geminiText.generateContent([
             { inlineData: { data: imageData.toString("base64"), mimeType: contentType } },
             { text: "Describe this image in detail for a social media caption writer. Focus on visual elements, mood, and message." },
-          ]);
+          ]));
         } catch {
           // If vision fails, continue without image description
           console.warn(`[lab.generateCaptions] Failed to get image description for node ${imageNode.id}`);
@@ -933,7 +865,7 @@ export const labRouter = router({
               ].filter(Boolean);
 
               const contentPrompt = promptParts.join("\n\n");
-              const captionText = await geminiText.generateContent(contentPrompt);
+              const captionText = await withRetry(() => geminiText.generateContent(contentPrompt));
 
               await ctx.prisma.labNode.update({
                 where: { id: nodeId },
@@ -1101,18 +1033,23 @@ export const labRouter = router({
                 const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.ideas(input.count);
                 const contentPrompt = `${sysPrompt}\n\nSOURCE TEXT:\n"""\n${sourceText}\n"""`;
 
-                const text = await geminiText.generateContent(contentPrompt);
+                const text = await withRetry(() => geminiText.generateContent(contentPrompt));
                 const ideas = parseJsonResponse<string[]>(text, "batch-ideas");
 
+                // Update nodes that have matching ideas, delete excess
                 for (let i = 0; i < childIds.length; i++) {
                   try {
                     const current = await ctx.prisma.labNode.findUnique({ where: { id: childIds[i] } });
                     if (current?.status !== "generating") continue;
-                    const ideaText = ideas[i] ?? ideas[i % ideas.length] ?? `Idea ${i + 1}`;
-                    await ctx.prisma.labNode.update({
-                      where: { id: childIds[i] },
-                      data: { status: "completed", output: { text: ideaText }, contentPrompt },
-                    });
+                    if (i < ideas.length) {
+                      await ctx.prisma.labNode.update({
+                        where: { id: childIds[i] },
+                        data: { status: "completed", output: { text: ideas[i] }, contentPrompt },
+                      });
+                    } else {
+                      // Gemini returned fewer items — delete excess node
+                      await ctx.prisma.labNode.delete({ where: { id: childIds[i] } });
+                    }
                   } catch {
                     await ctx.prisma.labNode.update({ where: { id: childIds[i] }, data: { status: "failed" } }).catch(() => {});
                   }
@@ -1125,22 +1062,28 @@ export const labRouter = router({
                 const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.outlines(input.count);
                 const contentPrompt = `${sysPrompt}\n\nIDEA:\n"""\n${ideaText}\n"""`;
 
-                const text = await geminiText.generateContent(contentPrompt);
+                const text = await withRetry(() => geminiText.generateContent(contentPrompt));
                 const outlines = parseJsonResponse<Array<{ slides: unknown[]; overallTheme: string }>>(text, "batch-outlines");
 
+                // Update nodes that have matching outlines, delete excess
                 for (let i = 0; i < childIds.length; i++) {
                   try {
                     const current = await ctx.prisma.labNode.findUnique({ where: { id: childIds[i] } });
                     if (current?.status !== "generating") continue;
-                    const outline = outlines[i] ?? outlines[i % outlines.length] ?? { slides: [], overallTheme: "" };
-                    await ctx.prisma.labNode.update({
-                      where: { id: childIds[i] },
-                      data: {
-                        status: "completed",
-                        output: { slides: outline.slides as JsonValue[], overallTheme: outline.overallTheme, text: outline.overallTheme } satisfies Record<string, JsonValue>,
-                        contentPrompt,
-                      },
-                    });
+                    if (i < outlines.length) {
+                      const outline = outlines[i];
+                      await ctx.prisma.labNode.update({
+                        where: { id: childIds[i] },
+                        data: {
+                          status: "completed",
+                          output: { slides: outline.slides as JsonValue[], overallTheme: outline.overallTheme, text: outline.overallTheme } satisfies Record<string, JsonValue>,
+                          contentPrompt,
+                        },
+                      });
+                    } else {
+                      // Gemini returned fewer items — delete excess node
+                      await ctx.prisma.labNode.delete({ where: { id: childIds[i] } });
+                    }
                   } catch {
                     await ctx.prisma.labNode.update({ where: { id: childIds[i] }, data: { status: "failed" } }).catch(() => {});
                   }
@@ -1174,7 +1117,7 @@ export const labRouter = router({
                       ].filter(Boolean);
                       const imagePrompt = promptParts.join("\n\n");
 
-                      const imgResult = await generateImage(imagePrompt, input.model as ModelKey, input.aspectRatio as AspectRatioKey);
+                      const imgResult = await withRetry(() => generateImage(imagePrompt, input.model as ModelKey, input.aspectRatio as AspectRatioKey));
                       const ext = imgResult.mimeType.split("/")[1] || "png";
                       const r2Key = `lab/${childId}/original.${ext}`;
                       const imageBuffer = Buffer.from(imgResult.base64, "base64");
@@ -1199,10 +1142,10 @@ export const labRouter = router({
                 if (node.r2Key) {
                   try {
                     const { data: imageData, contentType } = await fetchFromR2(node.r2Key);
-                    imageDescription = await geminiText.generateContent([
+                    imageDescription = await withRetry(() => geminiText.generateContent([
                       { inlineData: { data: imageData.toString("base64"), mimeType: contentType } },
                       { text: "Describe this image in detail for a social media caption writer. Focus on visual elements, mood, and message." },
-                    ]);
+                    ]));
                   } catch {
                     // Continue without image description
                   }
@@ -1232,7 +1175,7 @@ export const labRouter = router({
                       ].filter(Boolean);
                       const contentPrompt = promptParts.join("\n\n");
 
-                      const captionText = await geminiText.generateContent(contentPrompt);
+                      const captionText = await withRetry(() => geminiText.generateContent(contentPrompt));
                       await ctx.prisma.labNode.update({
                         where: { id: childId },
                         data: { status: "completed", output: { text: captionText.trim() }, contentPrompt },
@@ -1269,7 +1212,7 @@ export const labRouter = router({
     .mutation(async ({ input }) => {
       const prompt = `Here is a prompt:\n"""\n${input.currentPrompt}\n"""\n\nThe user wants to: ${input.instruction}\n\nReturn only the updated prompt text. Do not include any explanation or formatting — just the new prompt.`;
 
-      const updatedPrompt = await geminiText.generateContent(prompt);
+      const updatedPrompt = await withRetry(() => geminiText.generateContent(prompt));
 
       return { prompt: updatedPrompt.trim() };
     }),
