@@ -9,6 +9,7 @@ import { favoriteRouter } from "./routers/favorite";
 import { assetRouter } from "./routers/asset";
 import { generationRouter } from "./routers/generation";
 import { styleRouter } from "./routers/style";
+import { labRouter } from "./routers/lab";
 
 export const appRouter = router({
   user: userRouter,
@@ -21,6 +22,7 @@ export const appRouter = router({
   asset: assetRouter,
   generation: generationRouter,
   style: styleRouter,
+  lab: labRouter,
 });
 
 export type AppRouter = typeof appRouter;
