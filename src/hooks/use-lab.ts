@@ -6,84 +6,52 @@ import { toast } from "sonner";
 
 // ── Queries ────────────────────────────────────────────────────────
 
-export function useExperiments(projectId: string) {
+export function useTrees(projectId: string) {
   const trpc = useTRPC();
-  return useQuery(trpc.lab.listExperiments.queryOptions({ projectId }));
+  return useQuery(trpc.lab.listTrees.queryOptions({ projectId }));
 }
 
-export function useExperiment(id: string | undefined) {
+export function useTree(treeId: string | undefined) {
   const trpc = useTRPC();
   return useQuery({
-    ...trpc.lab.getExperiment.queryOptions({ id: id! }),
-    enabled: !!id,
-    // Re-fetch while any run is in a transient status so sidebar badges update
-    refetchInterval: (query) => {
-      const runs = (query.state.data as { runs?: { status: string }[] } | undefined)?.runs;
-      const hasGenerating = runs?.some((r) => r.status === "generating");
-      return hasGenerating ? 5000 : false;
-    },
+    ...trpc.lab.getTree.queryOptions({ treeId: treeId! }),
+    enabled: !!treeId,
   });
 }
 
-export function useRun(runId: string | undefined) {
+export function useTreeProgress(treeId: string | undefined, enabled: boolean) {
   const trpc = useTRPC();
   return useQuery({
-    ...trpc.lab.getRun.queryOptions({ runId: runId! }),
-    enabled: !!runId,
-    // Re-fetch periodically while the run is in a transient state so the UI
-    // picks up status changes (configuring -> generating -> completed/failed).
-    refetchInterval: (query) => {
-      const status = (query.state.data as { status?: string } | undefined)?.status;
-      return status === "generating" ? 3000 : false;
-    },
-  });
-}
-
-export function useRunConcepts(
-  runId: string | undefined,
-  conceptId?: string,
-  pollWhileGenerating?: boolean
-) {
-  const trpc = useTRPC();
-  return useQuery({
-    ...trpc.lab.getRunConcepts.queryOptions({ runId: runId!, conceptId }),
-    enabled: !!runId,
-    refetchInterval: pollWhileGenerating ? 3000 : false,
-  });
-}
-
-export function useRunProgress(runId: string | undefined, enabled: boolean) {
-  const trpc = useTRPC();
-  return useQuery({
-    ...trpc.lab.runProgress.queryOptions({ runId: runId! }),
-    enabled: !!runId && enabled,
+    ...trpc.lab.treeProgress.queryOptions({ treeId: treeId! }),
+    enabled: !!treeId && enabled,
     refetchInterval: enabled ? 2000 : false,
   });
 }
 
-// ── Mutations ──────────────────────────────────────────────────────
+// ── Tree Mutations ────────────────────────────────────────────────
 
-export function useCreateExperiment() {
+export function useCreateTree() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const { mutationFn } = trpc.lab.createExperiment.mutationOptions();
+  const { mutationFn } = trpc.lab.createTree.mutationOptions();
   return useMutation({
     mutationFn,
-    onMutate: async (newExperiment) => {
-      const queryKey = trpc.lab.listExperiments.queryKey({
-        projectId: newExperiment.projectId,
+    onMutate: async (newTree) => {
+      const queryKey = trpc.lab.listTrees.queryKey({
+        projectId: newTree.projectId,
       });
       await queryClient.cancelQueries({ queryKey });
       const previous = queryClient.getQueryData(queryKey);
       queryClient.setQueryData(queryKey, (old: any) => [
         {
-          ...newExperiment,
+          ...newTree,
           id: `temp-${Date.now()}`,
           orgId: "temp",
-          brandIdentityId: null,
+          brandIdentityId: newTree.brandIdentityId ?? null,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-          _count: { runs: 0 },
+          _count: { nodes: 0 },
+          layerCounts: {},
         },
         ...(old ?? []),
       ]);
@@ -93,11 +61,11 @@ export function useCreateExperiment() {
       if (context?.previous) {
         queryClient.setQueryData(context.queryKey, context.previous);
       }
-      toast.error("Failed to create experiment");
+      toast.error("Failed to create tree");
     },
     onSettled: (_data, _err, vars) => {
       queryClient.invalidateQueries({
-        queryKey: trpc.lab.listExperiments.queryKey({
+        queryKey: trpc.lab.listTrees.queryKey({
           projectId: vars.projectId,
         }),
       });
@@ -105,17 +73,33 @@ export function useCreateExperiment() {
   });
 }
 
-export function useDeleteExperiment() {
+export function useUpdateTree() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const { mutationFn } = trpc.lab.deleteExperiment.mutationOptions();
+  const { mutationFn } = trpc.lab.updateTree.mutationOptions();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: trpc.lab.listTrees.queryKey(),
+      });
+    },
+    onError: () => {
+      toast.error("Failed to update tree");
+    },
+  });
+}
+
+export function useDeleteTree() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const { mutationFn } = trpc.lab.deleteTree.mutationOptions();
   return useMutation({
     mutationFn,
     onMutate: async (deleted) => {
-      // We don't know projectId here so invalidate all listExperiments queries
-      // For optimistic removal, search all cached listExperiments queries
+      // We don't know projectId here so search all cached listTrees queries
       const allQueries = queryClient.getQueriesData<any[]>({
-        queryKey: trpc.lab.listExperiments.queryKey(),
+        queryKey: trpc.lab.listTrees.queryKey(),
       });
       const previousMap = new Map<readonly unknown[], any[]>();
       for (const [key, data] of allQueries) {
@@ -123,7 +107,7 @@ export function useDeleteExperiment() {
           previousMap.set(key, data);
           queryClient.setQueryData(
             key,
-            data.filter((e: any) => e.id !== deleted.id)
+            data.filter((t: any) => t.id !== deleted.treeId)
           );
         }
       }
@@ -135,237 +119,105 @@ export function useDeleteExperiment() {
           queryClient.setQueryData(key, data);
         }
       }
-      toast.error("Failed to delete experiment");
+      toast.error("Failed to delete tree");
     },
     onSettled: () => {
       queryClient.invalidateQueries({
-        queryKey: trpc.lab.listExperiments.queryKey(),
+        queryKey: trpc.lab.listTrees.queryKey(),
       });
     },
   });
 }
 
-export function useCreateRun() {
+// ── Node Mutations ────────────────────────────────────────────────
+
+export function useCreateSourceNode() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const { mutationFn } = trpc.lab.createRun.mutationOptions();
+  const { mutationFn } = trpc.lab.createSourceNode.mutationOptions();
   return useMutation({
     mutationFn,
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({
-        queryKey: trpc.lab.getExperiment.queryKey({
-          id: vars.experimentId,
-        }),
+        queryKey: trpc.lab.getTree.queryKey({ treeId: vars.treeId }),
       });
     },
     onError: () => {
-      toast.error("Failed to create run");
+      toast.error("Failed to create source node");
     },
   });
 }
 
-export function useUpdateRunSettings() {
+export function useUpdateNode() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const { mutationFn } = trpc.lab.updateRunSettings.mutationOptions();
-  return useMutation({
-    mutationFn,
-    onSuccess: (_data, vars) => {
-      queryClient.invalidateQueries({
-        queryKey: trpc.lab.getRun.queryKey({ runId: vars.runId }),
-      });
-    },
-    onError: () => {
-      toast.error("Failed to update run settings");
-    },
-  });
-}
-
-export function useStartGeneration() {
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const { mutationFn } = trpc.lab.startGeneration.mutationOptions();
-  return useMutation({
-    mutationFn,
-    onSuccess: (_data, vars) => {
-      queryClient.invalidateQueries({
-        queryKey: trpc.lab.getRun.queryKey({ runId: vars.runId }),
-      });
-    },
-    onError: () => {
-      toast.error("Failed to start generation");
-    },
-  });
-}
-
-export function useCancelRun() {
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const { mutationFn } = trpc.lab.cancelRun.mutationOptions();
-  return useMutation({
-    mutationFn,
-    onMutate: async (vars) => {
-      const queryKey = trpc.lab.getRun.queryKey({ runId: vars.runId });
-      await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData(queryKey);
-      queryClient.setQueryData(queryKey, (old: any) =>
-        old ? { ...old, status: "cancelled" } : old
-      );
-      return { previous, queryKey };
-    },
-    onError: (_err, _vars, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(context.queryKey, context.previous);
-      }
-      toast.error("Failed to cancel run");
-    },
-    onSettled: (_data, _err, vars) => {
-      queryClient.invalidateQueries({
-        queryKey: trpc.lab.getRun.queryKey({ runId: vars.runId }),
-      });
-    },
-  });
-}
-
-export function useRateImageVariation() {
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const { mutationFn } = trpc.lab.rateImageVariation.mutationOptions();
-  return useMutation({
-    mutationFn,
-    onMutate: async (vars) => {
-      // Optimistic update on all getRunConcepts queries
-      const allQueries = queryClient.getQueriesData<any>({
-        queryKey: trpc.lab.getRunConcepts.queryKey(),
-      });
-      const previousMap = new Map<readonly unknown[], any>();
-      for (const [key, data] of allQueries) {
-        if (!data) continue;
-        previousMap.set(key, data);
-        if (data.type === "single" && data.concept) {
-          queryClient.setQueryData(key, {
-            ...data,
-            concept: {
-              ...data.concept,
-              imageVariations: data.concept.imageVariations.map((v: any) =>
-                v.id === vars.variationId
-                  ? { ...v, rating: vars.rating, ratingComment: vars.comment ?? null }
-                  : v
-              ),
-            },
-          });
-        }
-      }
-      return { previousMap };
-    },
-    onError: (_err, _vars, context) => {
-      if (context?.previousMap) {
-        for (const [key, data] of context.previousMap) {
-          queryClient.setQueryData(key, data);
-        }
-      }
-      toast.error("Failed to rate image variation");
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({
-        queryKey: trpc.lab.getRunConcepts.queryKey(),
-      });
-    },
-  });
-}
-
-export function useRateCaptionVariation() {
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const { mutationFn } = trpc.lab.rateCaptionVariation.mutationOptions();
-  return useMutation({
-    mutationFn,
-    onMutate: async (vars) => {
-      const allQueries = queryClient.getQueriesData<any>({
-        queryKey: trpc.lab.getRunConcepts.queryKey(),
-      });
-      const previousMap = new Map<readonly unknown[], any>();
-      for (const [key, data] of allQueries) {
-        if (!data) continue;
-        previousMap.set(key, data);
-        if (data.type === "single" && data.concept) {
-          queryClient.setQueryData(key, {
-            ...data,
-            concept: {
-              ...data.concept,
-              captionVariations: data.concept.captionVariations.map((v: any) =>
-                v.id === vars.variationId
-                  ? { ...v, rating: vars.rating, ratingComment: vars.comment ?? null }
-                  : v
-              ),
-            },
-          });
-        }
-      }
-      return { previousMap };
-    },
-    onError: (_err, _vars, context) => {
-      if (context?.previousMap) {
-        for (const [key, data] of context.previousMap) {
-          queryClient.setQueryData(key, data);
-        }
-      }
-      toast.error("Failed to rate caption variation");
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({
-        queryKey: trpc.lab.getRunConcepts.queryKey(),
-      });
-    },
-  });
-}
-
-export function useRerun() {
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const { mutationFn } = trpc.lab.rerun.mutationOptions();
+  const { mutationFn } = trpc.lab.updateNode.mutationOptions();
   return useMutation({
     mutationFn,
     onSuccess: () => {
-      // New run appears in experiment's run list
+      // We don't know treeId here; invalidate all getTree queries
       queryClient.invalidateQueries({
-        queryKey: trpc.lab.getExperiment.queryKey(),
+        queryKey: trpc.lab.getTree.queryKey(),
       });
     },
     onError: () => {
-      toast.error("Failed to create re-run");
+      toast.error("Failed to update node");
     },
   });
 }
 
-export function useRetryVariation() {
+export function useDuplicateNode() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const { mutationFn } = trpc.lab.retryVariation.mutationOptions();
+  const { mutationFn } = trpc.lab.duplicateNode.mutationOptions();
   return useMutation({
     mutationFn,
-    onMutate: async (vars) => {
-      // Optimistic status reset to "generating" on the variation
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: trpc.lab.getTree.queryKey(),
+      });
+    },
+    onError: () => {
+      toast.error("Failed to duplicate node");
+    },
+  });
+}
+
+export function useDeleteNode() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const { mutationFn } = trpc.lab.deleteNode.mutationOptions();
+  return useMutation({
+    mutationFn,
+    onMutate: async (deleted) => {
+      // Optimistic removal from all cached getTree queries
       const allQueries = queryClient.getQueriesData<any>({
-        queryKey: trpc.lab.getRunConcepts.queryKey(),
+        queryKey: trpc.lab.getTree.queryKey(),
       });
       const previousMap = new Map<readonly unknown[], any>();
       for (const [key, data] of allQueries) {
-        if (!data) continue;
+        if (!data?.nodes) continue;
         previousMap.set(key, data);
-        if (data.type === "single" && data.concept) {
-          const variationKey =
-            vars.type === "image" ? "imageVariations" : "captionVariations";
-          queryClient.setQueryData(key, {
-            ...data,
-            concept: {
-              ...data.concept,
-              [variationKey]: data.concept[variationKey].map((v: any) =>
-                v.id === vars.variationId ? { ...v, status: "generating" } : v
-              ),
-            },
-          });
+
+        // Collect all descendant IDs (nodes whose parentId chain leads to the deleted node)
+        const removedIds = new Set<string>([deleted.nodeId]);
+        let changed = true;
+        while (changed) {
+          changed = false;
+          for (const node of data.nodes as any[]) {
+            if (!removedIds.has(node.id) && node.parentId && removedIds.has(node.parentId)) {
+              removedIds.add(node.id);
+              changed = true;
+            }
+          }
         }
+
+        queryClient.setQueryData(key, {
+          ...data,
+          nodes: (data.nodes as any[]).filter(
+            (n: any) => !removedIds.has(n.id)
+          ),
+        });
       }
       return { previousMap };
     },
@@ -375,15 +227,178 @@ export function useRetryVariation() {
           queryClient.setQueryData(key, data);
         }
       }
-      toast.error("Failed to retry variation");
+      toast.error("Failed to delete node");
     },
     onSettled: () => {
       queryClient.invalidateQueries({
-        queryKey: trpc.lab.getRunConcepts.queryKey(),
+        queryKey: trpc.lab.getTree.queryKey(),
       });
     },
   });
 }
+
+export function useRateNode() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const { mutationFn } = trpc.lab.rateNode.mutationOptions();
+  return useMutation({
+    mutationFn,
+    onMutate: async (vars) => {
+      // Optimistic rating update on all cached getTree queries
+      const allQueries = queryClient.getQueriesData<any>({
+        queryKey: trpc.lab.getTree.queryKey(),
+      });
+      const previousMap = new Map<readonly unknown[], any>();
+      for (const [key, data] of allQueries) {
+        if (!data?.nodes) continue;
+        previousMap.set(key, data);
+        queryClient.setQueryData(key, {
+          ...data,
+          nodes: (data.nodes as any[]).map((n: any) =>
+            n.id === vars.nodeId
+              ? { ...n, rating: vars.rating, ratingComment: vars.comment ?? null }
+              : n
+          ),
+        });
+      }
+      return { previousMap };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previousMap) {
+        for (const [key, data] of context.previousMap) {
+          queryClient.setQueryData(key, data);
+        }
+      }
+      toast.error("Failed to rate node");
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({
+        queryKey: trpc.lab.getTree.queryKey(),
+      });
+    },
+  });
+}
+
+// ── Generation Mutations ──────────────────────────────────────────
+
+export function useGenerateIdeas() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const { mutationFn } = trpc.lab.generateIdeas.mutationOptions();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: trpc.lab.getTree.queryKey(),
+      });
+    },
+    onError: () => {
+      toast.error("Failed to generate ideas");
+    },
+  });
+}
+
+export function useGenerateOutlines() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const { mutationFn } = trpc.lab.generateOutlines.mutationOptions();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: trpc.lab.getTree.queryKey(),
+      });
+    },
+    onError: () => {
+      toast.error("Failed to generate outlines");
+    },
+  });
+}
+
+export function useGenerateImages() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const { mutationFn } = trpc.lab.generateImages.mutationOptions();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: trpc.lab.getTree.queryKey(),
+      });
+    },
+    onError: () => {
+      toast.error("Failed to generate images");
+    },
+  });
+}
+
+export function useGenerateCaptions() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const { mutationFn } = trpc.lab.generateCaptions.mutationOptions();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: trpc.lab.getTree.queryKey(),
+      });
+    },
+    onError: () => {
+      toast.error("Failed to generate captions");
+    },
+  });
+}
+
+export function useGenerateBatch() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const { mutationFn } = trpc.lab.generateBatch.mutationOptions();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: trpc.lab.getTree.queryKey(),
+      });
+    },
+    onError: () => {
+      toast.error("Failed to generate batch");
+    },
+  });
+}
+
+// ── Cancel Generation ─────────────────────────────────────────────
+
+export function useCancelGeneration() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const { mutationFn } = trpc.lab.cancelGeneration.mutationOptions();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: trpc.lab.getTree.queryKey(),
+      });
+    },
+    onError: () => {
+      toast.error("Failed to cancel generation");
+    },
+  });
+}
+
+// ── AI Prompt Tweaking ────────────────────────────────────────────
+
+export function useTweakPrompt() {
+  const trpc = useTRPC();
+  const { mutationFn } = trpc.lab.tweakPrompt.mutationOptions();
+  return useMutation({
+    mutationFn,
+    onError: () => {
+      toast.error("Failed to tweak prompt");
+    },
+  });
+}
+
+// ── Export to Gallery ─────────────────────────────────────────────
 
 export function useExportToGallery() {
   const trpc = useTRPC();
@@ -397,44 +412,6 @@ export function useExportToGallery() {
     },
     onError: () => {
       toast.error("Failed to export to gallery");
-    },
-  });
-}
-
-export function useDeleteRun() {
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const { mutationFn } = trpc.lab.deleteRun.mutationOptions();
-  return useMutation({
-    mutationFn,
-    onMutate: async (vars) => {
-      // Optimistic removal from experiment's run list
-      const allQueries = queryClient.getQueriesData<any>({
-        queryKey: trpc.lab.getExperiment.queryKey(),
-      });
-      const previousMap = new Map<readonly unknown[], any>();
-      for (const [key, data] of allQueries) {
-        if (!data?.runs) continue;
-        previousMap.set(key, data);
-        queryClient.setQueryData(key, {
-          ...data,
-          runs: data.runs.filter((r: any) => r.id !== vars.runId),
-        });
-      }
-      return { previousMap };
-    },
-    onError: (_err, _vars, context) => {
-      if (context?.previousMap) {
-        for (const [key, data] of context.previousMap) {
-          queryClient.setQueryData(key, data);
-        }
-      }
-      toast.error("Failed to delete run");
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({
-        queryKey: trpc.lab.getExperiment.queryKey(),
-      });
     },
   });
 }
