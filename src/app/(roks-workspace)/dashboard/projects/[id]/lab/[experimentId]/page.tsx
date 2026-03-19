@@ -7,6 +7,7 @@ import { RunSidebar } from "@/components/lab/run-sidebar";
 import { ConfigureTab } from "@/components/lab/configure-tab";
 import { ResultsTab } from "@/components/lab/results-tab";
 import { ExportTab } from "@/components/lab/export-tab";
+import { RunComparison } from "@/components/lab/run-comparison";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -20,6 +21,8 @@ import {
   SettingsIcon,
   LayoutGridIcon,
   DownloadIcon,
+  GitCompareArrowsIcon,
+  XIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -40,6 +43,9 @@ export default function ExperimentWorkspacePage({
     selectRun,
     activeTab,
     setActiveTab,
+    comparisonMode,
+    comparisonRunIds,
+    toggleComparisonMode,
     reset,
   } = useLabStore();
 
@@ -154,7 +160,40 @@ export default function ExperimentWorkspacePage({
 
         {/* Main workspace */}
         <div className="flex flex-1 flex-col overflow-hidden">
-          {selectedRunId ? (
+          {comparisonMode && comparisonRunIds ? (
+            <>
+              {/* Comparison banner */}
+              <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <GitCompareArrowsIcon className="size-4 text-muted-foreground" />
+                  <span className="font-medium">
+                    Comparing Run #
+                    {runs.find((r) => r.id === comparisonRunIds[0])?.runNumber ??
+                      "?"}{" "}
+                    and Run #
+                    {runs.find((r) => r.id === comparisonRunIds[1])?.runNumber ??
+                      "?"}
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs"
+                  onClick={toggleComparisonMode}
+                >
+                  <XIcon className="size-3" />
+                  Exit comparison
+                </Button>
+              </div>
+              {/* Comparison view */}
+              <div className="flex-1 overflow-y-auto">
+                <RunComparison
+                  runId1={comparisonRunIds[0]}
+                  runId2={comparisonRunIds[1]}
+                />
+              </div>
+            </>
+          ) : selectedRunId ? (
             <Tabs
               value={activeTab}
               onValueChange={(val) =>
@@ -215,7 +254,9 @@ export default function ExperimentWorkspacePage({
           ) : (
             <div className="flex flex-1 items-center justify-center">
               <p className="text-sm text-muted-foreground">
-                Select a run or create a new one
+                {comparisonMode
+                  ? "Select two runs to compare"
+                  : "Select a run or create a new one"}
               </p>
             </div>
           )}

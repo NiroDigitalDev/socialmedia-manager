@@ -19,6 +19,7 @@ import {
   PlusIcon,
   Trash2Icon,
   Loader2Icon,
+  GitCompareArrowsIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLabStore } from "@/stores/use-lab-store";
@@ -64,6 +65,7 @@ export function RunSidebar({
     comparisonMode,
     comparisonRunIds,
     setComparisonRuns,
+    toggleComparisonMode,
   } = useLabStore();
 
   const [deleteRunId, setDeleteRunId] = useState<string | null>(null);
@@ -103,20 +105,36 @@ export function RunSidebar({
       {/* Header */}
       <div className="flex items-center justify-between border-b px-4 py-3">
         <h2 className="text-sm font-medium">Runs</h2>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={onNewRun}
-          disabled={isCreatingRun}
-          className="h-7 gap-1 px-2 text-xs"
-        >
-          {isCreatingRun ? (
-            <Loader2Icon className="size-3 animate-spin" />
-          ) : (
-            <PlusIcon className="size-3" />
+        <div className="flex items-center gap-1">
+          {runs.length >= 2 && (
+            <Button
+              size="sm"
+              variant={comparisonMode ? "secondary" : "ghost"}
+              onClick={toggleComparisonMode}
+              className="h-7 gap-1 px-2 text-xs"
+              title="Compare two runs"
+            >
+              <GitCompareArrowsIcon className="size-3" />
+              {comparisonMode ? "Exit" : "Compare"}
+            </Button>
           )}
-          New Run
-        </Button>
+          {!comparisonMode && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onNewRun}
+              disabled={isCreatingRun}
+              className="h-7 gap-1 px-2 text-xs"
+            >
+              {isCreatingRun ? (
+                <Loader2Icon className="size-3 animate-spin" />
+              ) : (
+                <PlusIcon className="size-3" />
+              )}
+              New Run
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Run list */}
