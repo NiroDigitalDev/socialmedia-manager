@@ -1,10 +1,11 @@
 "use client";
 
-import { use, useEffect, useMemo, useCallback } from "react";
+import { use, useState, useEffect, useMemo, useCallback } from "react";
 import { useTree, useTreeProgress } from "@/hooks/use-lab";
 import { useLabStore } from "@/stores/use-lab-store";
 import { LabCanvas, type LabNode } from "@/components/lab/canvas";
 import { LayerNav } from "@/components/lab/layer-nav";
+import { SourceUploadDialog } from "@/components/lab/source-upload-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeftIcon } from "lucide-react";
@@ -19,6 +20,7 @@ export default function TreeCanvasPage({
 
   const { data: tree, isLoading, isError } = useTree(treeId);
   const reset = useLabStore((s) => s.reset);
+  const [sourceDialogOpen, setSourceDialogOpen] = useState(false);
 
   // Determine if any nodes are currently generating for polling
   const hasGeneratingNodes = useMemo(
@@ -44,7 +46,7 @@ export default function TreeCanvasPage({
   }, []);
 
   const handleAddSource = useCallback(() => {
-    // Source creation will be implemented in Task 8
+    setSourceDialogOpen(true);
   }, []);
 
   if (isLoading) {
@@ -101,6 +103,14 @@ export default function TreeCanvasPage({
       <div className="flex-1 overflow-hidden">
         <LabCanvas nodes={nodes} treeId={treeId} />
       </div>
+
+      {/* Source upload dialog */}
+      <SourceUploadDialog
+        open={sourceDialogOpen}
+        onOpenChange={setSourceDialogOpen}
+        treeId={treeId}
+        projectId={projectId}
+      />
     </div>
   );
 }
