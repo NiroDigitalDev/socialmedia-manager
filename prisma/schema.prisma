@@ -80,6 +80,7 @@ model Project {
   posts           GeneratedPost[]   @relation("ProjectPosts")
   assets          Asset[]
   labTrees        LabTree[]
+  arenas          LabArena[]
 
   @@index([orgId])
 }
@@ -116,6 +117,7 @@ model BrandIdentity {
   palettes    BrandPalette[] @relation("BrandIdentityPalettes")
   campaigns   Campaign[]
   labTrees    LabTree[]
+  arenas      LabArena[]
 
   @@index([projectId])
   @@index([orgId])
@@ -325,6 +327,77 @@ model LabNode {
   @@index([treeId, layer])
   @@index([parentId])
   @@index([orgId])
+}
+
+// ── Lab: Arena models ─────────────────────────────────────────────
+
+model LabArena {
+  id              String           @id @default(cuid())
+  name            String
+  projectId       String
+  orgId           String
+  sourceText      String           @db.Text
+  imageStyleIds   String[]         @default([])
+  brandIdentityId String?
+  aspectRatio     String           @default("1:1")
+  model           String           @default("nano-banana-2")
+  status          String           @default("active")
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  brandIdentity   BrandIdentity?   @relation(fields: [brandIdentityId], references: [id], onDelete: SetNull)
+  rounds          LabArenaRound[]
+  entries         LabArenaEntry[]
+
+  @@index([orgId])
+  @@index([projectId])
+}
+
+model LabArenaRound {
+  id          String          @id @default(cuid())
+  arenaId     String
+  roundNumber Int
+  learnings   Json?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  arena       LabArena        @relation(fields: [arenaId], references: [id], onDelete: Cascade)
+  entries     LabArenaEntry[]
+
+  @@unique([arenaId, roundNumber])
+  @@index([arenaId])
+}
+
+model LabArenaEntry {
+  id             String    @id @default(cuid())
+  arenaId        String
+  roundId        String
+  imageStyleId   String
+  outlineContent Json?
+  r2Key          String?
+  mimeType       String?
+  status         String    @default("generating")
+  rating         String?
+  contentScore   Int?
+  styleScore     Int?
+  ratingTags     String[]  @default([])
+  ratingComment  String?
+  exportedPostId String?
+  systemPrompt   String?   @db.Text
+  contentPrompt  String?   @db.Text
+  captions       Json?
+  captionStyleId String?
+  orgId          String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  arena          LabArena       @relation(fields: [arenaId], references: [id], onDelete: Cascade)
+  round          LabArenaRound  @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  @@index([arenaId])
+  @@index([roundId])
+  @@index([arenaId, rating])
 }
 
 model User {
