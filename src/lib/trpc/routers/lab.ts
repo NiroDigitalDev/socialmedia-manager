@@ -2,7 +2,17 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, orgProtectedProcedure } from "../init";
 import { deleteFromR2, uploadToR2, fetchFromR2, publicUrl } from "@/lib/r2";
-import { geminiText, generateImage, type ModelKey, type AspectRatioKey } from "@/lib/gemini";
+import {
+  generateIdeas as aiGenerateIdeas,
+  generateOutlines as aiGenerateOutlines,
+  generateImageFromPrompt,
+  generateCaption as aiGenerateCaption,
+  PROMPTS,
+  type ModelKey,
+  type AspectRatio,
+} from "@/lib/ai";
+import { generateText } from "ai";
+import { textModel } from "@/lib/ai/config";
 import type { PrismaClient, Prisma } from "@/generated/prisma/client";
 import type { LabNodeLayer } from "@/generated/prisma/client";
 import pLimit from "p-limit";
@@ -50,26 +60,54 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, baseDelay = 1000)
   throw new Error("Unreachable");
 }
 
-/** Clean Gemini response that may contain markdown code fences */
-function cleanJsonResponse(text: string): string {
-  return text
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim();
+/** Fetch style prompt texts by style IDs */
+async function getStylePrompts(
+  prisma: PrismaClient,
+  imageStyleId: string | null,
+  captionStyleId: string | null,
+): Promise<{ imageStylePrompt: string | null; captionStylePrompt: string | null; captionSampleTexts: string[] }> {
+  let imageStylePrompt: string | null = null;
+  let captionStylePrompt: string | null = null;
+  let captionSampleTexts: string[] = [];
+
+  if (imageStyleId) {
+    const style = await prisma.style.findUnique({
+      where: { id: imageStyleId },
+      select: { promptText: true },
+    });
+    imageStylePrompt = style?.promptText ?? null;
+  }
+
+  if (captionStyleId) {
+    const style = await prisma.style.findUnique({
+      where: { id: captionStyleId },
+      select: { promptText: true, sampleTexts: true },
+    });
+    captionStylePrompt = style?.promptText ?? null;
+    captionSampleTexts = style?.sampleTexts ?? [];
+  }
+
+  return { imageStylePrompt, captionStylePrompt, captionSampleTexts };
 }
 
-/** Parse JSON from Gemini response with error handling */
-function parseJsonResponse<T>(text: string, context: string): T {
-  const cleaned = cleanJsonResponse(text);
-  try {
-    return JSON.parse(cleaned) as T;
-  } catch {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: `Failed to parse AI response for ${context}. Please try again.`,
+/** Walk up ancestor chain to find the nearest node with a given style ID */
+async function findAncestorStyleIds(
+  prisma: PrismaClient,
+  node: { parentId: string | null },
+): Promise<{ imageStyleId: string | null; captionStyleId: string | null }> {
+  let currentParentId = node.parentId;
+  while (currentParentId) {
+    const parent = await prisma.labNode.findUnique({
+      where: { id: currentParentId },
+      select: { parentId: true, imageStyleId: true, captionStyleId: true },
     });
+    if (!parent) break;
+    if (parent.imageStyleId || parent.captionStyleId) {
+      return { imageStyleId: parent.imageStyleId, captionStyleId: parent.captionStyleId };
+    }
+    currentParentId = parent.parentId;
   }
+  return { imageStyleId: null, captionStyleId: null };
 }
 
 // ── Ancestor Context Builder ────────────────────────────────────
@@ -151,18 +189,6 @@ async function buildAncestorContext(
   }
 }
 
-// ── Default System Prompts ──────────────────────────────────────
-
-const DEFAULT_PROMPTS = {
-  ideas: (count: number) =>
-    `You are a content strategist. Given the source text below, extract ${count} distinct content ideas for Instagram posts. Each idea should be a single focused concept. Return as a JSON array of strings.`,
-  outlines: (count: number) =>
-    `You are a content designer. Given the idea below, create ${count} structured Instagram post outline${count > 1 ? "s" : ""} with slide descriptions and layout notes. Return as a JSON array of objects, each with fields: slides (array of {title, description, layoutNotes}), overallTheme.`,
-  images:
-    "You are an expert visual designer creating Instagram post images. Create a visually striking, professional image based on the outline provided.",
-  captions:
-    "You are a social media copywriter. Write an engaging Instagram caption for the image described below, based on the outline content. Include relevant hashtags. Return the caption text only.",
-};
 
 // ── Layer mapping ───────────────────────────────────────────────
 
@@ -230,6 +256,8 @@ export const labRouter = router({
               fileName: true,
               systemPrompt: true,
               contentPrompt: true,
+              imageStyleId: true,
+              captionStyleId: true,
             },
           },
         },
@@ -480,6 +508,17 @@ export const labRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Tree not found" });
       }
 
+      // Stale generation cleanup: mark nodes stuck generating >5min as failed
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      await ctx.prisma.labNode.updateMany({
+        where: {
+          treeId: input.treeId,
+          status: "generating",
+          updatedAt: { lt: fiveMinutesAgo },
+        },
+        data: { status: "failed" },
+      });
+
       const fiveSecondsAgo = new Date(Date.now() - 5000);
 
       const nodes = await ctx.prisma.labNode.findMany({
@@ -534,16 +573,18 @@ export const labRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Source node has no text content" });
       }
 
-      // Call Gemini first, then create one node per actual idea returned
-      const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.ideas(input.count);
-      const contentPrompt = `${sysPrompt}\n\nSOURCE TEXT:\n"""\n${sourceText}\n"""`;
+      const customPrompt = input.systemPrompt ?? undefined;
+      const sysPrompt = customPrompt ?? PROMPTS.ideas(input.count);
 
-      const text = await withRetry(() => geminiText.generateContent(contentPrompt));
-      const ideas = parseJsonResponse<string[]>(text, "ideas");
+      // Generate ideas — full source, no chunking (Gemini 3.1 Pro handles 1M tokens)
+      const allIdeas = await withRetry(() =>
+        aiGenerateIdeas(sourceText, input.count, customPrompt),
+      );
 
-      // Create one node per actual idea returned (no duplicates)
+      // Create one node per idea returned
+      const contentPrompt = `SOURCE TEXT:\n"""\n${sourceText.slice(0, 2000)}${sourceText.length > 2000 ? "... [truncated]" : ""}\n"""`;
       const nodeIds: string[] = [];
-      for (const ideaText of ideas) {
+      for (const ideaText of allIdeas) {
         const node = await ctx.prisma.labNode.create({
           data: {
             treeId: sourceNode.treeId,
@@ -551,8 +592,8 @@ export const labRouter = router({
             orgId: ctx.orgId,
             layer: "idea",
             status: "completed",
-            systemPrompt: input.systemPrompt ?? null,
-            ancestorContext: { sourceText },
+            systemPrompt: sysPrompt,
+            ancestorContext: { sourceText: sourceText.slice(0, 5000) },
             output: { text: ideaText },
             contentPrompt,
           },
@@ -569,6 +610,8 @@ export const labRouter = router({
         ideaNodeId: z.string(),
         count: z.number().min(1).max(10).default(3),
         systemPrompt: z.string().optional(),
+        imageStyleId: z.string().optional(),
+        captionStyleId: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -597,14 +640,31 @@ export const labRouter = router({
       const ancestorContext = await buildAncestorContext(ctx.prisma, ideaNode);
       const fullAncestorContext = { ...ancestorContext, ideaText };
 
-      // Call Gemini first, then create one node per actual outline returned
-      const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.outlines(input.count);
-      const contentPrompt = `${sysPrompt}\n\nIDEA:\n"""\n${ideaText}\n"""`;
+      // Fetch style prompts if style IDs provided
+      const { imageStylePrompt } = await getStylePrompts(
+        ctx.prisma,
+        input.imageStyleId ?? null,
+        input.captionStyleId ?? null,
+      );
 
-      const text = await withRetry(() => geminiText.generateContent(contentPrompt));
-      const outlines = parseJsonResponse<Array<{ slides: unknown[]; overallTheme: string }>>(text, "outlines");
+      const customPrompt = input.systemPrompt ?? undefined;
+      const sysPrompt = customPrompt ?? PROMPTS.outlines(input.count);
 
-      // Create one node per actual outline returned (no duplicates)
+      // Build the user prompt with style context
+      const promptParts = [
+        ideaText,
+        imageStylePrompt && `Visual style direction: ${imageStylePrompt}. Design the outline to work well with this aesthetic.`,
+      ].filter(Boolean);
+      const fullPrompt = promptParts.join("\n\n");
+
+      // Generate outlines with structured output
+      const outlines = await withRetry(() =>
+        aiGenerateOutlines(fullPrompt, input.count, customPrompt),
+      );
+
+      const contentPrompt = `IDEA:\n"""\n${ideaText}\n"""`;
+
+      // Create one node per outline returned
       const nodeIds: string[] = [];
       for (const outline of outlines) {
         const node = await ctx.prisma.labNode.create({
@@ -614,9 +674,15 @@ export const labRouter = router({
             orgId: ctx.orgId,
             layer: "outline",
             status: "completed",
-            systemPrompt: input.systemPrompt ?? null,
+            systemPrompt: sysPrompt,
+            imageStyleId: input.imageStyleId ?? null,
+            captionStyleId: input.captionStyleId ?? null,
             ancestorContext: fullAncestorContext,
-            output: { slides: outline.slides as JsonValue[], overallTheme: outline.overallTheme, text: outline.overallTheme } satisfies Record<string, JsonValue>,
+            output: {
+              slides: outline.slides as JsonValue[],
+              overallTheme: outline.overallTheme,
+              text: outline.overallTheme,
+            } satisfies Record<string, JsonValue>,
             contentPrompt,
           },
         });
@@ -682,6 +748,13 @@ export const labRouter = router({
         brandContext = parts.join(". ");
       }
 
+      // Fetch image style from parent outline node
+      const { imageStylePrompt } = await getStylePrompts(
+        ctx.prisma,
+        outlineNode.imageStyleId,
+        null,
+      );
+
       // Create N image nodes with status "generating"
       const nodeIds: string[] = [];
       for (let i = 0; i < input.count; i++) {
@@ -692,7 +765,7 @@ export const labRouter = router({
             orgId: ctx.orgId,
             layer: "image",
             status: "generating",
-            systemPrompt: input.systemPrompt ?? null,
+            systemPrompt: input.systemPrompt ?? PROMPTS.images,
             ancestorContext,
           },
         });
@@ -704,7 +777,7 @@ export const labRouter = router({
 
       // Fire-and-forget background generation with p-limit(5)
       const limit = pLimit(5);
-      const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.images;
+      const sysPrompt = input.systemPrompt ?? PROMPTS.images;
 
       void (async () => {
         const jobs = nodeIds.map((nodeId, i) =>
@@ -724,19 +797,22 @@ export const labRouter = router({
 
               const promptParts = [
                 sysPrompt,
+                imageStylePrompt && `Visual style: ${imageStylePrompt}`,
                 overallTheme && `Theme: ${overallTheme}`,
-                slidesText && `Outline slides:\n${slidesText}`,
+                slidesText && `Outline:\n${slidesText}`,
                 brandContext && `Brand context: ${brandContext}`,
                 input.count > 1 && `Variation ${i + 1} of ${input.count}: Make this visually distinct.`,
               ].filter(Boolean);
 
               const imagePrompt = promptParts.join("\n\n");
 
-              const imgResult = await withRetry(() => generateImage(
-                imagePrompt,
-                input.model as ModelKey,
-                input.aspectRatio as AspectRatioKey,
-              ));
+              const imgResult = await withRetry(() =>
+                generateImageFromPrompt(
+                  imagePrompt,
+                  input.model as ModelKey,
+                  input.aspectRatio as AspectRatio,
+                ),
+              );
 
               // Upload to R2
               const ext = imgResult.mimeType.split("/")[1] || "png";
@@ -796,25 +872,35 @@ export const labRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Node is not an image node" });
       }
 
-      // Build ancestor context
+      // Build ancestor context (for outline slides text)
       const ancestorContext = await buildAncestorContext(ctx.prisma, imageNode);
 
-      // Get image description via Gemini vision if the image node has an r2Key
-      let imageDescription = "";
-      if (imageNode.r2Key) {
-        try {
-          const { data: imageData, contentType } = await fetchFromR2(imageNode.r2Key);
-          imageDescription = await withRetry(() => geminiText.generateContent([
-            { inlineData: { data: imageData.toString("base64"), mimeType: contentType } },
-            { text: "Describe this image in detail for a social media caption writer. Focus on visual elements, mood, and message." },
-          ]));
-        } catch {
-          // If vision fails, continue without image description
-          console.warn(`[lab.generateCaptions] Failed to get image description for node ${imageNode.id}`);
-        }
-      }
+      // Fetch caption style from ancestor outline node
+      const ancestorStyles = await findAncestorStyleIds(ctx.prisma, imageNode);
+      const { captionStylePrompt, captionSampleTexts } = await getStylePrompts(
+        ctx.prisma,
+        null,
+        ancestorStyles.captionStyleId,
+      );
 
-      const fullAncestorContext = { ...ancestorContext, imageDescription };
+      // Build outline context string for the caption prompt
+      const outlineSlides = (ancestorContext.outlineSlides as unknown[]) ?? [];
+      const slidesText = outlineSlides
+        .map((s, idx) => {
+          const slide = s as { title?: string; description?: string };
+          return `Slide ${idx + 1}: ${slide.title ?? ""} — ${slide.description ?? ""}`;
+        })
+        .join("\n");
+
+      const outlineContext = [
+        slidesText && `Outline:\n${slidesText}`,
+        captionStylePrompt && `Caption style: ${captionStylePrompt}`,
+        captionSampleTexts.length > 0 && `Example captions in this style:\n${captionSampleTexts.map((t, i) => `${i + 1}. ${t}`).join("\n")}`,
+        `Image node ID: ${input.imageNodeId}`,
+        `Organization ID: ${ctx.orgId}`,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
 
       // Create N caption nodes with status "generating"
       const nodeIds: string[] = [];
@@ -826,8 +912,8 @@ export const labRouter = router({
             orgId: ctx.orgId,
             layer: "caption",
             status: "generating",
-            systemPrompt: input.systemPrompt ?? null,
-            ancestorContext: fullAncestorContext,
+            systemPrompt: input.systemPrompt ?? PROMPTS.captions,
+            ancestorContext,
           },
         });
         nodeIds.push(node.id);
@@ -838,41 +924,49 @@ export const labRouter = router({
 
       // Fire-and-forget background generation with p-limit(10)
       const limit = pLimit(10);
-      const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.captions;
 
-      // Build outline context from ancestor
-      const outlineSlides = (ancestorContext.outlineSlides as unknown[]) ?? [];
-      const slidesText = outlineSlides
-        .map((s, idx) => {
-          const slide = s as { title?: string; description?: string };
-          return `Slide ${idx + 1}: ${slide.title ?? ""} — ${slide.description ?? ""}`;
-        })
-        .join("\n");
+      // Build deps for caption generation tools
+      const captionDeps = {
+        prisma: ctx.prisma,
+        fetchFromR2,
+      };
 
       void (async () => {
         const jobs = nodeIds.map((nodeId, i) =>
           limit(async () => {
             try {
               // Cancellation check
-              const current = await ctx.prisma.labNode.findUnique({ where: { id: nodeId } });
+              const current = await ctx.prisma.labNode.findUnique({
+                where: { id: nodeId },
+              });
               if (current?.status !== "generating") return;
 
-              const promptParts = [
-                sysPrompt,
-                slidesText && `Outline:\n${slidesText}`,
-                imageDescription && `Image description: ${imageDescription}`,
-                input.count > 1 && `Variation ${i + 1} of ${input.count}: Write a distinct caption variation.`,
-              ].filter(Boolean);
+              const variationContext =
+                input.count > 1
+                  ? `\n\nVariation ${i + 1} of ${input.count}: Write a distinct caption variation.`
+                  : "";
 
-              const contentPrompt = promptParts.join("\n\n");
-              const captionText = await withRetry(() => geminiText.generateContent(contentPrompt));
+              const captionResult = await withRetry(() =>
+                aiGenerateCaption(
+                  outlineContext + variationContext,
+                  input.imageNodeId,
+                  ctx.orgId,
+                  captionDeps,
+                  input.systemPrompt ?? undefined,
+                ),
+              );
+
+              const captionText = captionResult.caption +
+                (captionResult.hashtags.length > 0
+                  ? "\n\n" + captionResult.hashtags.map((h) => `#${h}`).join(" ")
+                  : "");
 
               await ctx.prisma.labNode.update({
                 where: { id: nodeId },
                 data: {
                   status: "completed",
                   output: { text: captionText.trim() },
-                  contentPrompt,
+                  contentPrompt: outlineContext,
                 },
               });
             } catch {
@@ -885,7 +979,7 @@ export const labRouter = router({
                 // Ignore
               }
             }
-          })
+          }),
         );
 
         await Promise.allSettled(jobs);
@@ -950,6 +1044,8 @@ export const labRouter = router({
         systemPrompt: z.string().optional(),
         model: z.enum(["nano-banana-2", "nano-banana-pro"]).default("nano-banana-2"),
         aspectRatio: z.enum(["3:4", "1:1", "4:5", "9:16"]).default("1:1"),
+        imageStyleId: z.string().optional(),
+        captionStyleId: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -990,12 +1086,20 @@ export const labRouter = router({
         });
       }
 
-      // For each node, call the appropriate generation based on layer
-      // We use the caller from this same router context
-      const allNodeIds: string[] = [];
+      // Resolve default system prompt based on the generation layer
+      const defaultSysPrompt = (() => {
+        switch (layer) {
+          case "source": return PROMPTS.ideas(input.count);
+          case "idea": return PROMPTS.outlines(input.count);
+          case "outline": return PROMPTS.images;
+          case "image": return PROMPTS.captions;
+          default: return null;
+        }
+      })();
+      const sysPromptToStore = input.systemPrompt ?? defaultSysPrompt;
 
-      // We build individual generation calls
-      // To avoid circular calls, we replicate the core logic inline
+      // For each node, call the appropriate generation based on layer
+      const allNodeIds: string[] = [];
       const limit = layer === "outline" ? pLimit(5) : pLimit(10);
 
       for (const node of nodes) {
@@ -1009,7 +1113,12 @@ export const labRouter = router({
               orgId: ctx.orgId,
               layer: nextLayer,
               status: "generating",
-              systemPrompt: input.systemPrompt ?? null,
+              systemPrompt: sysPromptToStore,
+              // Store style IDs on outline nodes (when parent is idea)
+              ...(layer === "idea" && {
+                imageStyleId: input.imageStyleId ?? null,
+                captionStyleId: input.captionStyleId ?? null,
+              }),
               ancestorContext: await buildAncestorContext(ctx.prisma, {
                 id: "temp",
                 parentId: node.id,
@@ -1030,13 +1139,12 @@ export const labRouter = router({
               case "source": {
                 // Generate ideas
                 const sourceText = (nodeOutput?.text as string) ?? "";
-                const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.ideas(input.count);
-                const contentPrompt = `${sysPrompt}\n\nSOURCE TEXT:\n"""\n${sourceText}\n"""`;
+                const sysPrompt = input.systemPrompt ?? undefined;
+                const ideas = await withRetry(() =>
+                  aiGenerateIdeas(sourceText, input.count, sysPrompt),
+                );
+                const contentPrompt = `SOURCE TEXT:\n"""\n${sourceText.slice(0, 2000)}...\n"""`;
 
-                const text = await withRetry(() => geminiText.generateContent(contentPrompt));
-                const ideas = parseJsonResponse<string[]>(text, "batch-ideas");
-
-                // Update nodes that have matching ideas, delete excess
                 for (let i = 0; i < childIds.length; i++) {
                   try {
                     const current = await ctx.prisma.labNode.findUnique({ where: { id: childIds[i] } });
@@ -1047,7 +1155,6 @@ export const labRouter = router({
                         data: { status: "completed", output: { text: ideas[i] }, contentPrompt },
                       });
                     } else {
-                      // Gemini returned fewer items — delete excess node
                       await ctx.prisma.labNode.delete({ where: { id: childIds[i] } });
                     }
                   } catch {
@@ -1057,15 +1164,19 @@ export const labRouter = router({
                 break;
               }
               case "idea": {
-                // Generate outlines
+                // Generate outlines — inject image style for visual direction
                 const ideaText = (nodeOutput?.text as string) ?? "";
-                const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.outlines(input.count);
-                const contentPrompt = `${sysPrompt}\n\nIDEA:\n"""\n${ideaText}\n"""`;
+                const sysPrompt = input.systemPrompt ?? undefined;
+                const batchStyles = await getStylePrompts(ctx.prisma, input.imageStyleId ?? null, input.captionStyleId ?? null);
+                const outlinePromptParts = [
+                  ideaText,
+                  batchStyles.imageStylePrompt && `Visual style direction: ${batchStyles.imageStylePrompt}. Design the outline to work well with this aesthetic.`,
+                ].filter(Boolean);
+                const outlines = await withRetry(() =>
+                  aiGenerateOutlines(outlinePromptParts.join("\n\n"), input.count, sysPrompt),
+                );
+                const contentPrompt = `IDEA:\n"""\n${ideaText}\n"""`;
 
-                const text = await withRetry(() => geminiText.generateContent(contentPrompt));
-                const outlines = parseJsonResponse<Array<{ slides: unknown[]; overallTheme: string }>>(text, "batch-outlines");
-
-                // Update nodes that have matching outlines, delete excess
                 for (let i = 0; i < childIds.length; i++) {
                   try {
                     const current = await ctx.prisma.labNode.findUnique({ where: { id: childIds[i] } });
@@ -1081,7 +1192,6 @@ export const labRouter = router({
                         },
                       });
                     } else {
-                      // Gemini returned fewer items — delete excess node
                       await ctx.prisma.labNode.delete({ where: { id: childIds[i] } });
                     }
                   } catch {
@@ -1094,8 +1204,8 @@ export const labRouter = router({
                 // Generate images
                 const outlineSlides = (nodeOutput?.slides as unknown[]) ?? [];
                 const overallTheme = (nodeOutput?.overallTheme as string) ?? "";
+                const sysPrompt = input.systemPrompt ?? PROMPTS.images;
 
-                const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.images;
                 const slidesText = outlineSlides
                   .map((s, idx) => {
                     const slide = s as { title?: string; description?: string; layoutNotes?: string };
@@ -1109,15 +1219,23 @@ export const labRouter = router({
                       const current = await ctx.prisma.labNode.findUnique({ where: { id: childId } });
                       if (current?.status !== "generating") return;
 
+                      // Read image style from the parent node (outline)
+                      const nodeImageStyle = node.imageStyleId
+                        ? (await getStylePrompts(ctx.prisma, node.imageStyleId, null)).imageStylePrompt
+                        : null;
+
                       const promptParts = [
                         sysPrompt,
+                        nodeImageStyle && `Visual style: ${nodeImageStyle}`,
                         overallTheme && `Theme: ${overallTheme}`,
-                        slidesText && `Outline slides:\n${slidesText}`,
+                        slidesText && `Outline:\n${slidesText}`,
                         input.count > 1 && `Variation ${i + 1} of ${input.count}: Make this visually distinct.`,
                       ].filter(Boolean);
                       const imagePrompt = promptParts.join("\n\n");
 
-                      const imgResult = await withRetry(() => generateImage(imagePrompt, input.model as ModelKey, input.aspectRatio as AspectRatioKey));
+                      const imgResult = await withRetry(() =>
+                        generateImageFromPrompt(imagePrompt, input.model as ModelKey, input.aspectRatio as AspectRatio),
+                      );
                       const ext = imgResult.mimeType.split("/")[1] || "png";
                       const r2Key = `lab/${childId}/original.${ext}`;
                       const imageBuffer = Buffer.from(imgResult.base64, "base64");
@@ -1130,7 +1248,7 @@ export const labRouter = router({
                     } catch {
                       await ctx.prisma.labNode.update({ where: { id: childId }, data: { status: "failed" } }).catch(() => {});
                     }
-                  })
+                  }),
                 );
                 await Promise.allSettled(jobs);
                 break;
@@ -1138,19 +1256,6 @@ export const labRouter = router({
               case "image": {
                 // Generate captions
                 const ancestorCtx = await buildAncestorContext(ctx.prisma, node);
-                let imageDescription = "";
-                if (node.r2Key) {
-                  try {
-                    const { data: imageData, contentType } = await fetchFromR2(node.r2Key);
-                    imageDescription = await withRetry(() => geminiText.generateContent([
-                      { inlineData: { data: imageData.toString("base64"), mimeType: contentType } },
-                      { text: "Describe this image in detail for a social media caption writer. Focus on visual elements, mood, and message." },
-                    ]));
-                  } catch {
-                    // Continue without image description
-                  }
-                }
-
                 const outlineSlidesCap = (ancestorCtx.outlineSlides as unknown[]) ?? [];
                 const slidesTextCap = outlineSlidesCap
                   .map((s, idx) => {
@@ -1159,7 +1264,19 @@ export const labRouter = router({
                   })
                   .join("\n");
 
-                const sysPrompt = input.systemPrompt ?? DEFAULT_PROMPTS.captions;
+                // Read caption style from ancestor outline node
+                const batchAncestorStyles = await findAncestorStyleIds(ctx.prisma, node);
+                const batchCaptionStyle = await getStylePrompts(ctx.prisma, null, batchAncestorStyles.captionStyleId);
+
+                const outlineContext = [
+                  slidesTextCap && `Outline:\n${slidesTextCap}`,
+                  batchCaptionStyle.captionStylePrompt && `Caption style: ${batchCaptionStyle.captionStylePrompt}`,
+                  batchCaptionStyle.captionSampleTexts.length > 0 && `Example captions in this style:\n${batchCaptionStyle.captionSampleTexts.map((t, i) => `${i + 1}. ${t}`).join("\n")}`,
+                  `Image node ID: ${node.id}`,
+                  `Organization ID: ${ctx.orgId}`,
+                ].filter(Boolean).join("\n\n");
+
+                const captionDeps = { prisma: ctx.prisma, fetchFromR2 };
 
                 const captionJobs = childIds.map((childId, i) =>
                   limit(async () => {
@@ -1167,23 +1284,27 @@ export const labRouter = router({
                       const current = await ctx.prisma.labNode.findUnique({ where: { id: childId } });
                       if (current?.status !== "generating") return;
 
-                      const promptParts = [
-                        sysPrompt,
-                        slidesTextCap && `Outline:\n${slidesTextCap}`,
-                        imageDescription && `Image description: ${imageDescription}`,
-                        input.count > 1 && `Variation ${i + 1} of ${input.count}: Write a distinct caption variation.`,
-                      ].filter(Boolean);
-                      const contentPrompt = promptParts.join("\n\n");
+                      const variationCtx = input.count > 1
+                        ? `\n\nVariation ${i + 1} of ${input.count}: Write a distinct caption variation.`
+                        : "";
 
-                      const captionText = await withRetry(() => geminiText.generateContent(contentPrompt));
+                      const captionResult = await withRetry(() =>
+                        aiGenerateCaption(outlineContext + variationCtx, node.id, ctx.orgId, captionDeps, input.systemPrompt ?? undefined),
+                      );
+
+                      const captionText = captionResult.caption +
+                        (captionResult.hashtags.length > 0
+                          ? "\n\n" + captionResult.hashtags.map((h) => `#${h}`).join(" ")
+                          : "");
+
                       await ctx.prisma.labNode.update({
                         where: { id: childId },
-                        data: { status: "completed", output: { text: captionText.trim() }, contentPrompt },
+                        data: { status: "completed", output: { text: captionText.trim() }, contentPrompt: outlineContext },
                       });
                     } catch {
                       await ctx.prisma.labNode.update({ where: { id: childId }, data: { status: "failed" } }).catch(() => {});
                     }
-                  })
+                  }),
                 );
                 await Promise.allSettled(captionJobs);
                 break;
@@ -1212,9 +1333,15 @@ export const labRouter = router({
     .mutation(async ({ input }) => {
       const prompt = `Here is a prompt:\n"""\n${input.currentPrompt}\n"""\n\nThe user wants to: ${input.instruction}\n\nReturn only the updated prompt text. Do not include any explanation or formatting — just the new prompt.`;
 
-      const updatedPrompt = await withRetry(() => geminiText.generateContent(prompt));
+      const result = await withRetry(async () => {
+        const { text } = await generateText({
+          model: textModel,
+          prompt,
+        });
+        return text;
+      });
 
-      return { prompt: updatedPrompt.trim() };
+      return { prompt: result.trim() };
     }),
 
   // ── Export to Gallery ─────────────────────────────────────────

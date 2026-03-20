@@ -40,6 +40,8 @@ export interface LabNode {
   fileName: string | null;
   systemPrompt: string | null;
   contentPrompt: string | null;
+  imageStyleId: string | null;
+  captionStyleId: string | null;
   [key: string]: unknown; // index signature required by React Flow Node<data>
 }
 
@@ -58,19 +60,61 @@ const nodeTypes: NodeTypes = {
 
 // ── Conversion helpers ───────────────────────────────────────────
 
+/**
+ * Collect all descendant IDs of collapsed nodes so they can be hidden.
+ * Uses BFS to find all nodes whose ancestor chain includes a collapsed node.
+ */
+function getHiddenByCollapse(apiNodes: LabNode[], collapsedIds: Set<string>): Set<string> {
+  if (collapsedIds.size === 0) return new Set();
+  const hidden = new Set<string>();
+  // Build parent→children map
+  const childrenMap = new Map<string, string[]>();
+  for (const n of apiNodes) {
+    if (n.parentId) {
+      const list = childrenMap.get(n.parentId) ?? [];
+      list.push(n.id);
+      childrenMap.set(n.parentId, list);
+    }
+  }
+  // BFS from each collapsed node to hide all descendants
+  for (const collapsedId of collapsedIds) {
+    const queue = childrenMap.get(collapsedId) ?? [];
+    for (const id of queue) {
+      hidden.add(id);
+      const kids = childrenMap.get(id);
+      if (kids) queue.push(...kids);
+    }
+  }
+  return hidden;
+}
+
 function apiNodesToReactFlow(
   apiNodes: LabNode[],
   showHidden: boolean,
+  collapsedIds: Set<string>,
 ): { rfNodes: LabFlowNode[]; rfEdges: Edge[] } {
-  const visibleNodes = showHidden
+  // Filter thumbs-downed
+  const ratingFiltered = showHidden
     ? apiNodes
     : apiNodes.filter((n) => n.rating !== "down");
+
+  // Filter collapsed descendants
+  const hiddenByCollapse = getHiddenByCollapse(ratingFiltered, collapsedIds);
+  const visibleNodes = ratingFiltered.filter((n) => !hiddenByCollapse.has(n.id));
+
+  // Build child count map (direct children in the full list, not just visible)
+  const childCountMap = new Map<string, number>();
+  for (const n of ratingFiltered) {
+    if (n.parentId) {
+      childCountMap.set(n.parentId, (childCountMap.get(n.parentId) ?? 0) + 1);
+    }
+  }
 
   const rfNodes: LabFlowNode[] = visibleNodes.map((node) => ({
     id: node.id,
     type: node.layer,
     position: { x: 0, y: 0 },
-    data: node,
+    data: { ...node, _childCount: childCountMap.get(node.id) ?? 0 },
   }));
 
   const visibleIds = new Set(visibleNodes.map((n) => n.id));
@@ -113,6 +157,7 @@ export function LabCanvas(props: LabCanvasProps) {
 
 function LabCanvasInner({ nodes: apiNodes, treeId, handleRef }: LabCanvasProps) {
   const showHidden = useLabStore((s) => s.showHidden);
+  const collapsedIds = useLabStore((s) => s.collapsedIds);
   const selectNode = useLabStore((s) => s.selectNode);
   const toggleMultiSelect = useLabStore((s) => s.toggleMultiSelect);
   const clearMultiSelect = useLabStore((s) => s.clearMultiSelect);
@@ -122,57 +167,66 @@ function LabCanvasInner({ nodes: apiNodes, treeId, handleRef }: LabCanvasProps) 
   const [rfNodes, setNodes, onNodesChange] = useNodesState<LabFlowNode>([]);
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
-  // Track the previous node count to detect additions/removals
-  const prevNodeKeyRef = useRef<string>("");
+  // Track which node IDs have been laid out so we know when new ones appear
+  const laidOutIdsRef = useRef<Set<string>>(new Set());
+  const isInitialLayoutRef = useRef(true);
 
-  // Convert API nodes whenever apiNodes or showHidden changes
+  // Convert API nodes whenever apiNodes, showHidden, or collapsedIds changes
   const { rfNodes: convertedNodes, rfEdges: convertedEdges } = useMemo(
-    () => apiNodesToReactFlow(apiNodes, showHidden),
-    [apiNodes, showHidden],
+    () => apiNodesToReactFlow(apiNodes, showHidden, collapsedIds),
+    [apiNodes, showHidden, collapsedIds],
   );
 
-  // Compute layout whenever converted nodes/edges change
   useEffect(() => {
-    // Build a stable key from node IDs to detect structural changes
-    const nodeKey = convertedNodes
-      .map((n) => n.id)
-      .sort()
-      .join(",");
-
-    // Always compute layout when node structure changes or on first render
-    const structureChanged = nodeKey !== prevNodeKeyRef.current;
-    prevNodeKeyRef.current = nodeKey;
-
     if (convertedNodes.length === 0) {
       setNodes([]);
       setEdges([]);
+      laidOutIdsRef.current = new Set();
+      isInitialLayoutRef.current = true;
       return;
     }
 
-    // Use measured dimensions from current rfNodes if available
-    const measuredNodes = convertedNodes.map((node) => {
-      const existing = rfNodes.find((n) => n.id === node.id);
-      if (existing?.measured) {
-        return { ...node, measured: existing.measured };
-      }
-      return node;
-    });
+    const convertedIds = new Set(convertedNodes.map((n) => n.id));
+    const newNodeIds = convertedNodes
+      .filter((n) => !laidOutIdsRef.current.has(n.id))
+      .map((n) => n.id);
+    const hasNewNodes = newNodeIds.length > 0;
+    const isInitial = isInitialLayoutRef.current;
 
-    let cancelled = false;
+    if (isInitial || hasNewNodes) {
+      // Full relayout needed (initial load or new nodes added)
+      const existingMap = new Map(rfNodes.map((n) => [n.id, n]));
+      const measuredNodes = convertedNodes.map((node) => {
+        const existing = existingMap.get(node.id);
+        return existing?.measured ? { ...node, measured: existing.measured } : node;
+      });
 
-    void computeTreeLayout(measuredNodes, convertedEdges).then(
-      (layoutedNodes) => {
-        if (cancelled) return;
-        setNodes(layoutedNodes);
-        setEdges(convertedEdges);
-      },
-    );
-
-    return () => {
-      cancelled = true;
-    };
-    // We intentionally exclude rfNodes from deps to avoid infinite loops.
-    // The layout is recomputed when the converted (API-derived) data changes.
+      let cancelled = false;
+      void computeTreeLayout(measuredNodes, convertedEdges).then(
+        (layoutedNodes) => {
+          if (cancelled) return;
+          setNodes(layoutedNodes);
+          setEdges(convertedEdges);
+          laidOutIdsRef.current = convertedIds;
+          isInitialLayoutRef.current = false;
+        },
+      );
+      return () => { cancelled = true; };
+    } else {
+      // No new nodes — update data in place, keep existing positions
+      // Remove nodes that are no longer visible (collapsed/hidden)
+      setNodes((prev) => {
+        const updated = prev
+          .filter((n) => convertedIds.has(n.id))
+          .map((n) => {
+            const source = convertedNodes.find((c) => c.id === n.id);
+            return source ? { ...n, data: source.data } : n;
+          });
+        return updated;
+      });
+      setEdges(convertedEdges);
+      laidOutIdsRef.current = convertedIds;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convertedNodes, convertedEdges, setNodes, setEdges]);
 
@@ -221,7 +275,7 @@ function LabCanvasInner({ nodes: apiNodes, treeId, handleRef }: LabCanvasProps) 
   }, [selectNode, clearMultiSelect]);
 
   return (
-    <div className="h-full w-full">
+    <div className="h-full w-full dark">
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
@@ -233,11 +287,18 @@ function LabCanvasInner({ nodes: apiNodes, treeId, handleRef }: LabCanvasProps) 
         fitView
         minZoom={0.1}
         maxZoom={2}
+        colorMode="dark"
         proOptions={{ hideAttribution: true }}
       >
-        <Controls />
-        <MiniMap zoomable pannable />
-        <Background variant={BackgroundVariant.Dots} gap={16} />
+        <Controls className="!bg-neutral-800 !border-neutral-700 !shadow-md [&>button]:!bg-neutral-800 [&>button]:!border-neutral-700 [&>button]:!fill-neutral-300 [&>button:hover]:!bg-neutral-700" />
+        <MiniMap
+          zoomable
+          pannable
+          className="!bg-neutral-900 !border-neutral-700"
+          maskColor="rgba(0, 0, 0, 0.6)"
+          nodeColor="hsl(var(--muted-foreground))"
+        />
+        <Background variant={BackgroundVariant.Dots} gap={16} color="hsl(var(--muted-foreground) / 0.15)" />
       </ReactFlow>
     </div>
   );

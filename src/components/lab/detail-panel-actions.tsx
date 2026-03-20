@@ -72,9 +72,10 @@ interface DetailPanelActionsProps {
   node: LabNode;
   treeId: string;
   allNodes: LabNode[];
+  projectId?: string;
 }
 
-export function DetailPanelActions({ node, treeId, allNodes }: DetailPanelActionsProps) {
+export function DetailPanelActions({ node, treeId, allNodes, projectId }: DetailPanelActionsProps) {
   const selectNode = useLabStore((s) => s.selectNode);
 
   const rateNode = useRateNode();
@@ -122,7 +123,7 @@ export function DetailPanelActions({ node, treeId, allNodes }: DetailPanelAction
     );
   };
 
-  const handleGenerate = (count: number) => {
+  const handleGenerate = (count: number, options?: { imageStyleIds?: string[]; captionStyleId?: string }) => {
     const layer = node.layer;
 
     if (layer === "source") {
@@ -131,10 +132,21 @@ export function DetailPanelActions({ node, treeId, allNodes }: DetailPanelAction
         { onSuccess: () => toast.success(`Generating ${count} ideas...`) }
       );
     } else if (layer === "idea") {
-      generateOutlines.mutate(
-        { ideaNodeId: node.id, count },
-        { onSuccess: () => toast.success(`Generating ${count} outlines...`) }
-      );
+      const styleIds = options?.imageStyleIds;
+      if (styleIds && styleIds.length > 0) {
+        // Fan out: one call per image style
+        for (const imageStyleId of styleIds) {
+          generateOutlines.mutate(
+            { ideaNodeId: node.id, count, imageStyleId, captionStyleId: options?.captionStyleId },
+          );
+        }
+        toast.success(`Generating ${count * styleIds.length} outlines across ${styleIds.length} styles...`);
+      } else {
+        generateOutlines.mutate(
+          { ideaNodeId: node.id, count, captionStyleId: options?.captionStyleId },
+          { onSuccess: () => toast.success(`Generating ${count} outlines...`) }
+        );
+      }
     } else if (layer === "outline") {
       generateImages.mutate(
         { outlineNodeId: node.id, count },
@@ -157,7 +169,7 @@ export function DetailPanelActions({ node, treeId, allNodes }: DetailPanelAction
   const canExport = isExportablePost(node, allNodes);
 
   const handleExport = () => {
-    exportToGallery.mutate({ posts: [{ captionNodeId: node.id }] });
+    exportToGallery.mutate({ posts: [{ captionNodeId: node.id }], projectId });
   };
 
   const handleRetry = () => {
@@ -196,11 +208,13 @@ export function DetailPanelActions({ node, treeId, allNodes }: DetailPanelAction
         Actions
       </h3>
 
-      {/* Rating */}
-      <div className="flex items-center justify-between">
-        <span className="text-sm text-muted-foreground">Rating</span>
-        <ThumbsRating value={node.rating} onRate={handleRate} />
-      </div>
+      {/* Rating — skip for source nodes */}
+      {node.layer !== "source" && (
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">Rating</span>
+          <ThumbsRating value={node.rating} onRate={handleRate} />
+        </div>
+      )}
 
       {/* Export to Gallery (caption nodes that qualify as posts) */}
       {canExport && (
@@ -245,6 +259,7 @@ export function DetailPanelActions({ node, treeId, allNodes }: DetailPanelAction
           defaultCount={DEFAULT_COUNTS[node.layer] ?? 3}
           nextLayerName={nextLayerName}
           isGenerating={isGenerating}
+          showStylePickers={node.layer === "idea"}
         />
       )}
 

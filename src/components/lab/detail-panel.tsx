@@ -1,6 +1,7 @@
 "use client";
 
-import { XIcon, FileTextIcon, LightbulbIcon, ListIcon, ImageIcon, MessageSquareIcon } from "lucide-react";
+import { useState } from "react";
+import { XIcon, FileTextIcon, LightbulbIcon, ListIcon, ImageIcon, MessageSquareIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -11,6 +12,7 @@ import { useLabStore } from "@/stores/use-lab-store";
 import { DetailPanelPrompts } from "./detail-panel-prompts";
 import { DetailPanelActions } from "./detail-panel-actions";
 import { cn } from "@/lib/utils";
+import { useStyles } from "@/hooks/use-styles";
 import type { LabNode } from "./canvas";
 
 const LAYER_LABELS: Record<string, { label: string; icon: typeof FileTextIcon }> = {
@@ -32,9 +34,10 @@ interface DetailPanelProps {
   node: LabNode;
   treeId: string;
   allNodes: LabNode[];
+  projectId?: string;
 }
 
-export function DetailPanel({ node, treeId, allNodes }: DetailPanelProps) {
+export function DetailPanel({ node, treeId, allNodes, projectId }: DetailPanelProps) {
   const selectNode = useLabStore((s) => s.selectNode);
   const updateNode = useUpdateNode();
 
@@ -57,51 +60,65 @@ export function DetailPanel({ node, treeId, allNodes }: DetailPanelProps) {
   };
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b px-4 py-3">
-        <div className="flex items-center gap-2">
-          <LayerIcon className="size-4 text-muted-foreground" />
-          <span className="text-sm font-semibold">{layerInfo.label}</span>
-          <Badge
-            variant="secondary"
-            className={cn("text-[10px] px-1.5 py-0", STATUS_COLORS[node.status])}
+    <div className="relative h-full">
+      {/* Absolutely positioned inner container gives us a real pixel height */}
+      <div className="absolute inset-0 flex flex-col">
+        {/* Header */}
+        <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
+          <div className="flex items-center gap-2">
+            <LayerIcon className="size-4 text-muted-foreground" />
+            <span className="text-sm font-semibold">{layerInfo.label}</span>
+            <Badge
+              variant="secondary"
+              className={cn("text-[10px] px-1.5 py-0", STATUS_COLORS[node.status])}
+            >
+              {node.status}
+            </Badge>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={() => selectNode(null)}
           >
-            {node.status}
-          </Badge>
+            <XIcon className="size-4" />
+          </Button>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          onClick={() => selectNode(null)}
-        >
-          <XIcon className="size-4" />
-        </Button>
+
+        {/* Scrollable content — explicit h so Radix viewport scrolls */}
+        <ScrollArea className="h-[calc(100%-3rem)]">
+          <div className="space-y-4 p-4">
+            {/* Output display */}
+            <OutputDisplay node={node} />
+
+            {/* Styles — show on outline nodes */}
+            {node.layer === "outline" && (node.imageStyleId || node.captionStyleId) && (
+              <>
+                <Separator />
+                <StylesDisplay imageStyleId={node.imageStyleId} captionStyleId={node.captionStyleId} />
+              </>
+            )}
+
+            {/* Prompts — skip for source nodes (no AI generation) */}
+            {node.layer !== "source" && (
+              <>
+                <Separator />
+                <DetailPanelPrompts
+                  nodeId={node.id}
+                  systemPrompt={node.systemPrompt}
+                  contentPrompt={node.contentPrompt}
+                  onSave={handleSavePrompts}
+                />
+              </>
+            )}
+
+            <Separator />
+
+            {/* Actions */}
+            <DetailPanelActions node={node} treeId={treeId} allNodes={allNodes} projectId={projectId} />
+          </div>
+        </ScrollArea>
       </div>
-
-      {/* Scrollable content */}
-      <ScrollArea className="flex-1">
-        <div className="space-y-4 p-4">
-          {/* Output display */}
-          <OutputDisplay node={node} />
-
-          <Separator />
-
-          {/* Prompts */}
-          <DetailPanelPrompts
-            nodeId={node.id}
-            systemPrompt={node.systemPrompt}
-            contentPrompt={node.contentPrompt}
-            onSave={handleSavePrompts}
-          />
-
-          <Separator />
-
-          {/* Actions */}
-          <DetailPanelActions node={node} treeId={treeId} allNodes={allNodes} />
-        </div>
-      </ScrollArea>
     </div>
   );
 }
@@ -153,8 +170,14 @@ function OutputDisplay({ node }: { node: LabNode }) {
   }
 }
 
+const SOURCE_TRUNCATE_LENGTH = 500;
+
 function SourceOutput({ output, fileName }: { output: unknown; fileName: string | null }) {
   const text = getOutputText(output);
+  const [expanded, setExpanded] = useState(false);
+  const isTruncated = text.length > SOURCE_TRUNCATE_LENGTH;
+  const displayText = isTruncated && !expanded ? text.slice(0, SOURCE_TRUNCATE_LENGTH) + "..." : text;
+
   return (
     <div className="space-y-2">
       {fileName && (
@@ -162,8 +185,30 @@ function SourceOutput({ output, fileName }: { output: unknown; fileName: string 
           {fileName}
         </p>
       )}
-      <div className="whitespace-pre-wrap rounded-md bg-muted/50 p-3 text-sm leading-relaxed">
-        {text || "No content"}
+      <div className="relative">
+        <div className="whitespace-pre-wrap rounded-md bg-muted/50 p-3 text-sm leading-relaxed">
+          {displayText || "No content"}
+        </div>
+        {isTruncated && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-1 h-7 w-full text-xs text-muted-foreground"
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? (
+              <>
+                <ChevronUpIcon className="mr-1 size-3" />
+                Show less
+              </>
+            ) : (
+              <>
+                <ChevronDownIcon className="mr-1 size-3" />
+                Show all ({text.length.toLocaleString()} chars)
+              </>
+            )}
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -181,25 +226,28 @@ function IdeaOutput({ output }: { output: unknown }) {
 function OutlineOutput({ output }: { output: unknown }) {
   const data = output as Record<string, unknown> | null;
 
-  // Outline might be structured with slides/sections
+  // Outline with structured slides data
   if (data && typeof data === "object" && "slides" in data && Array.isArray(data.slides)) {
+    const slides = data.slides as Array<{ title?: string; description?: string }>;
+    const theme = "overallTheme" in data ? String(data.overallTheme ?? "") : "";
+
     return (
       <div className="space-y-3">
-        {(data.slides as Array<{ title?: string; description?: string }>).map(
-          (slide, i) => (
-            <div key={i} className="rounded-md border p-3">
-              <p className="text-xs font-semibold">
-                Slide {i + 1}
-                {slide.title ? `: ${slide.title}` : ""}
-              </p>
-              {slide.description && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {slide.description}
-                </p>
-              )}
-            </div>
-          )
+        {theme && (
+          <p className="text-sm font-semibold">{theme}</p>
         )}
+        {slides.map((slide, i) => (
+          <div key={i} className="rounded-md border p-3">
+            {slide.title && (
+              <p className="text-xs font-semibold">{slide.title}</p>
+            )}
+            {slide.description && (
+              <p className={cn("text-xs text-muted-foreground", slide.title && "mt-1")}>
+                {slide.description}
+              </p>
+            )}
+          </div>
+        ))}
       </div>
     );
   }
@@ -223,7 +271,14 @@ function ImageOutput({ r2Key }: { r2Key: string | null }) {
   }
 
   const publicUrl = process.env.NEXT_PUBLIC_R2_PUBLIC_URL;
-  const src = publicUrl ? `${publicUrl}/${r2Key}` : `/api/images/${r2Key}?type=generated`;
+  if (!publicUrl) {
+    return (
+      <div className="flex aspect-square items-center justify-center rounded-md border border-dashed bg-muted/50">
+        <p className="text-xs text-muted-foreground">Image preview unavailable (R2 URL not configured)</p>
+      </div>
+    );
+  }
+  const src = `${publicUrl}/${r2Key}`;
 
   return (
     <div className="overflow-hidden rounded-md border">
@@ -243,6 +298,36 @@ function CaptionOutput({ output }: { output: unknown }) {
   return (
     <div className="whitespace-pre-wrap rounded-md bg-muted/50 p-3 text-sm leading-relaxed">
       {text || "No caption content"}
+    </div>
+  );
+}
+
+// ── Styles Display ───────────────────────────────────────────────
+
+function StylesDisplay({ imageStyleId, captionStyleId }: { imageStyleId: string | null; captionStyleId: string | null }) {
+  const { data: styles } = useStyles();
+  const imageStyle = imageStyleId ? styles?.find((s) => s.id === imageStyleId) : null;
+  const captionStyle = captionStyleId ? styles?.find((s) => s.id === captionStyleId) : null;
+
+  if (!imageStyle && !captionStyle) return null;
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Styles
+      </h3>
+      {imageStyle && (
+        <div className="flex items-center gap-2 text-xs">
+          <Badge variant="secondary" className="text-[10px]">Image</Badge>
+          <span>{imageStyle.name}</span>
+        </div>
+      )}
+      {captionStyle && (
+        <div className="flex items-center gap-2 text-xs">
+          <Badge variant="secondary" className="text-[10px]">Caption</Badge>
+          <span>{captionStyle.name}</span>
+        </div>
+      )}
     </div>
   );
 }
