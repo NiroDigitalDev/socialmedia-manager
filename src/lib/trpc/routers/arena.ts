@@ -5,9 +5,11 @@ import { deleteFromR2, uploadToR2 } from "@/lib/r2";
 import {
   generateOutlines as aiGenerateOutlines,
   generateImageFromPrompt,
+  analyzeFeedback,
   PROMPTS,
   type ModelKey,
   type AspectRatio,
+  type StyleLearnings,
 } from "@/lib/ai";
 import pLimit from "p-limit";
 
@@ -487,5 +489,410 @@ export const arenaRouter = router({
           ratingComment: input.comment ?? null,
         },
       });
+    }),
+
+  generateNextRound: orgProtectedProcedure
+    .input(
+      z.object({
+        arenaId: z.string(),
+        previousRoundId: z.string(),
+        styles: z
+          .array(
+            z.object({
+              styleId: z.string(),
+              count: z.number().min(1).max(50),
+            })
+          )
+          .min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // 1. Fetch arena + previous round, verify org
+      const arena = await ctx.prisma.labArena.findUnique({
+        where: { id: input.arenaId },
+      });
+
+      if (!arena) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Arena not found" });
+      }
+      if (arena.orgId !== ctx.orgId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
+
+      const previousRound = await ctx.prisma.labArenaRound.findUnique({
+        where: { id: input.previousRoundId },
+      });
+
+      if (!previousRound || previousRound.arenaId !== input.arenaId) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Previous round not found",
+        });
+      }
+
+      // 2. For each continuing style, collect all entries across ALL rounds and analyze feedback
+      const learningsMap: Record<string, StyleLearnings> = {};
+
+      for (const { styleId } of input.styles) {
+        const allEntries = await ctx.prisma.labArenaEntry.findMany({
+          where: {
+            arenaId: input.arenaId,
+            imageStyleId: styleId,
+            rating: { not: null },
+          },
+          select: {
+            rating: true,
+            contentScore: true,
+            styleScore: true,
+            ratingTags: true,
+            ratingComment: true,
+            contentPrompt: true,
+            outlineContent: true,
+          },
+        });
+
+        if (allEntries.length > 0) {
+          const style = await ctx.prisma.style.findUnique({
+            where: { id: styleId },
+            select: { name: true, promptText: true },
+          });
+
+          const feedbackEntries = allEntries.map((e) => ({
+            rating: e.rating as "up" | "down" | "super",
+            contentScore: e.contentScore,
+            styleScore: e.styleScore,
+            ratingTags: e.ratingTags,
+            ratingComment: e.ratingComment,
+            contentPrompt: e.contentPrompt,
+            outlineContent: e.outlineContent,
+          }));
+
+          learningsMap[styleId] = await analyzeFeedback(
+            style?.name ?? "Unknown",
+            style?.promptText ?? "",
+            feedbackEntries
+          );
+        } else {
+          learningsMap[styleId] = {
+            keepContent: [],
+            keepStyle: [],
+            avoidContent: [],
+            avoidStyle: [],
+            summary: "No rated entries yet.",
+          };
+        }
+      }
+
+      // 3. Create new round
+      const newRound = await ctx.prisma.labArenaRound.create({
+        data: {
+          arenaId: input.arenaId,
+          roundNumber: previousRound.roundNumber + 1,
+          learnings: learningsMap as object,
+        },
+      });
+
+      // 4. Create entries with status: "generating"
+      const entryIds: string[] = [];
+      const styleEntryMap: Record<string, string[]> = {};
+
+      for (const { styleId, count } of input.styles) {
+        styleEntryMap[styleId] = [];
+        for (let i = 0; i < count; i++) {
+          const entry = await ctx.prisma.labArenaEntry.create({
+            data: {
+              arenaId: input.arenaId,
+              roundId: newRound.id,
+              imageStyleId: styleId,
+              status: "generating",
+              orgId: ctx.orgId,
+            },
+          });
+          entryIds.push(entry.id);
+          styleEntryMap[styleId].push(entry.id);
+        }
+      }
+
+      // 5. Return immediately
+      const result = {
+        roundId: newRound.id,
+        entryIds,
+        learnings: learningsMap,
+      };
+
+      // 6. Fetch brand context if brandIdentityId provided
+      let brandContext = "";
+      if (arena.brandIdentityId) {
+        const brand = await ctx.prisma.brandIdentity.findUnique({
+          where: { id: arena.brandIdentityId },
+          include: { palettes: true },
+        });
+        if (brand) {
+          const parts: string[] = [];
+          if (brand.name) parts.push(`Brand: ${brand.name}`);
+          if (brand.tagline) parts.push(`Tagline: "${brand.tagline}"`);
+          if (brand.palettes.length > 0) {
+            const palette = brand.palettes[0];
+            parts.push(
+              `Brand colors — Accent: ${palette.accentColor}, Background: ${palette.bgColor}`
+            );
+          }
+          brandContext = parts.join(". ");
+        }
+      }
+
+      // 7. Fire-and-forget background generation with learnings
+      const limit = pLimit(5);
+
+      void (async () => {
+        for (const { styleId, count } of input.styles) {
+          const currentStyleEntryIds = styleEntryMap[styleId];
+          const learnings = learningsMap[styleId];
+
+          try {
+            // Fetch style promptText
+            const style = await ctx.prisma.style.findUnique({
+              where: { id: styleId },
+              select: { promptText: true },
+            });
+            const stylePrompt = style?.promptText ?? "";
+
+            // Collect super-rated entry prompts for gold standard references
+            const superEntries = await ctx.prisma.labArenaEntry.findMany({
+              where: {
+                arenaId: input.arenaId,
+                imageStyleId: styleId,
+                rating: "super",
+                contentPrompt: { not: null },
+              },
+              select: { contentPrompt: true, outlineContent: true },
+            });
+            const superPrompts = superEntries
+              .map((e) => e.contentPrompt)
+              .filter((p): p is string => p !== null);
+
+            // Build outline prompt with content learnings injected
+            const outlinePromptParts = [
+              arena.sourceText,
+              stylePrompt &&
+                `Visual style direction: ${stylePrompt}. Design the outline to work well with this aesthetic.`,
+              learnings.keepContent.length > 0 &&
+                `Content learnings — Users liked: ${learnings.keepContent.join(", ")}`,
+              learnings.avoidContent.length > 0 &&
+                `Content learnings — Users disliked: ${learnings.avoidContent.join(", ")}`,
+              superPrompts.length > 0 &&
+                `Gold standard examples (replicate these patterns):\n${superPrompts.join("\n")}`,
+            ]
+              .filter(Boolean)
+              .join("\n\n");
+
+            const outlines = await withRetry(() =>
+              aiGenerateOutlines(outlinePromptParts, count)
+            );
+
+            // Generate images for each entry
+            const jobs = currentStyleEntryIds.map((entryId, i) =>
+              limit(async () => {
+                try {
+                  // Cancellation check
+                  const current =
+                    await ctx.prisma.labArenaEntry.findUnique({
+                      where: { id: entryId },
+                    });
+                  if (current?.status !== "generating") return;
+
+                  // Use outline if available
+                  const outline =
+                    i < outlines.length
+                      ? outlines[i]
+                      : outlines[outlines.length - 1];
+                  const overallTheme = outline?.overallTheme ?? "";
+                  const slides = outline?.slides ?? [];
+
+                  const slidesText = slides
+                    .map((s, idx) => {
+                      return `Slide ${idx + 1}: ${s.title ?? ""} — ${s.description ?? ""}${s.layoutNotes ? ` (Layout: ${s.layoutNotes})` : ""}`;
+                    })
+                    .join("\n");
+
+                  // Build image prompt with style learnings injected
+                  const promptParts = [
+                    PROMPTS.images,
+                    stylePrompt && `Visual style: ${stylePrompt}`,
+                    learnings.keepStyle.length > 0 &&
+                      `Style learnings — Users liked: ${learnings.keepStyle.join(", ")}`,
+                    learnings.avoidStyle.length > 0 &&
+                      `Style learnings — Users disliked: ${learnings.avoidStyle.join(", ")}`,
+                    overallTheme && `Theme: ${overallTheme}`,
+                    slidesText && `Outline:\n${slidesText}`,
+                    brandContext && `Brand context: ${brandContext}`,
+                    count > 1 &&
+                      `Variation ${i + 1} of ${count}: Make this visually distinct.`,
+                  ].filter(Boolean);
+                  const imagePrompt = promptParts.join("\n\n");
+
+                  const imgResult = await withRetry(() =>
+                    generateImageFromPrompt(
+                      imagePrompt,
+                      arena.model as ModelKey,
+                      arena.aspectRatio as AspectRatio
+                    )
+                  );
+
+                  // Upload to R2
+                  const ext = imgResult.mimeType.split("/")[1] || "png";
+                  const r2Key = `arena/${entryId}/original.${ext}`;
+                  const imageBuffer = Buffer.from(imgResult.base64, "base64");
+                  await uploadToR2(r2Key, imageBuffer, imgResult.mimeType);
+
+                  // Update entry
+                  await ctx.prisma.labArenaEntry.update({
+                    where: { id: entryId },
+                    data: {
+                      status: "completed",
+                      r2Key,
+                      mimeType: imgResult.mimeType,
+                      outlineContent: outline as object,
+                      systemPrompt: PROMPTS.images,
+                      contentPrompt: imagePrompt,
+                    },
+                  });
+                } catch {
+                  try {
+                    await ctx.prisma.labArenaEntry.update({
+                      where: { id: entryId },
+                      data: { status: "failed" },
+                    });
+                  } catch {
+                    // Ignore — entry may have been deleted
+                  }
+                }
+              })
+            );
+
+            await Promise.allSettled(jobs);
+          } catch (err) {
+            // If outline generation fails for this style, mark all its entries as failed
+            console.error(
+              `[arena.generateNextRound] Outline generation failed for style ${styleId}:`,
+              err
+            );
+            for (const entryId of currentStyleEntryIds) {
+              try {
+                await ctx.prisma.labArenaEntry.update({
+                  where: { id: entryId },
+                  data: { status: "failed" },
+                });
+              } catch {
+                // Ignore
+              }
+            }
+          }
+        }
+      })();
+
+      return result;
+    }),
+
+  getSwipeQueue: orgProtectedProcedure
+    .input(z.object({ roundId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Verify round belongs to an arena the user has access to
+      const round = await ctx.prisma.labArenaRound.findUnique({
+        where: { id: input.roundId },
+        include: { arena: true },
+      });
+
+      if (!round) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Round not found" });
+      }
+      if (round.arena.orgId !== ctx.orgId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
+
+      const entries = await ctx.prisma.labArenaEntry.findMany({
+        where: {
+          roundId: input.roundId,
+          status: "completed",
+          rating: null,
+        },
+        orderBy: { createdAt: "asc" },
+      });
+
+      return entries;
+    }),
+
+  getRoundResults: orgProtectedProcedure
+    .input(z.object({ roundId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Verify round belongs to an arena the user has access to
+      const round = await ctx.prisma.labArenaRound.findUnique({
+        where: { id: input.roundId },
+        include: { arena: true },
+      });
+
+      if (!round) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Round not found" });
+      }
+      if (round.arena.orgId !== ctx.orgId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
+
+      // Fetch all entries for this round
+      const entries = await ctx.prisma.labArenaEntry.findMany({
+        where: { roundId: input.roundId },
+        orderBy: { createdAt: "asc" },
+      });
+
+      // Group by imageStyleId
+      const styleGroups: Record<
+        string,
+        typeof entries
+      > = {};
+      for (const entry of entries) {
+        if (!styleGroups[entry.imageStyleId]) {
+          styleGroups[entry.imageStyleId] = [];
+        }
+        styleGroups[entry.imageStyleId].push(entry);
+      }
+
+      // Fetch style names
+      const styleIds = Object.keys(styleGroups);
+      const styles = await ctx.prisma.style.findMany({
+        where: { id: { in: styleIds } },
+        select: { id: true, name: true },
+      });
+      const styleNameMap: Record<string, string> = {};
+      for (const s of styles) {
+        styleNameMap[s.id] = s.name;
+      }
+
+      // Build results per style
+      const styleResults = styleIds.map((styleId) => {
+        const styleEntries = styleGroups[styleId];
+        const up = styleEntries.filter((e) => e.rating === "up").length;
+        const down = styleEntries.filter((e) => e.rating === "down").length;
+        const superCount = styleEntries.filter(
+          (e) => e.rating === "super"
+        ).length;
+        const total = styleEntries.length;
+        const rated = up + down + superCount;
+
+        return {
+          styleId,
+          styleName: styleNameMap[styleId] ?? "Unknown",
+          total,
+          up,
+          down,
+          super: superCount,
+          ratio: rated > 0 ? (up + superCount) / rated : 0,
+          entries: styleEntries,
+        };
+      });
+
+      return {
+        styles: styleResults,
+        learnings: (round.learnings ?? {}) as Record<string, StyleLearnings>,
+      };
     }),
 });
