@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   useStyles,
   useCreateStyle,
@@ -10,10 +10,10 @@ import {
   useStyleFromImage,
   useRemixStyle,
   useBlendStyles,
-  useGenerateAllPreviews,
-  useMigrateStylesToR2,
   useGenerateCaptionPreview,
+  useGeneratePreviewsForStyles,
 } from "@/hooks/use-styles";
+import { Badge } from "@/components/ui/badge";
 import { StyleCard } from "@/components/style-card";
 import { StyleInspector } from "@/components/style-inspector";
 import { Button } from "@/components/ui/button";
@@ -52,8 +52,6 @@ import {
   UploadIcon,
   ShuffleIcon,
   MergeIcon,
-  ImageIcon,
-  CloudIcon,
   TypeIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -77,11 +75,11 @@ export default function StylesPage() {
   const styleFromImage = useStyleFromImage();
   const remixStyle = useRemixStyle();
   const blendStyles = useBlendStyles();
-  const generateAllPreviews = useGenerateAllPreviews();
-  const migrateToR2 = useMigrateStylesToR2();
   const generateCaptionPreview = useGenerateCaptionPreview();
+  const generateForStyles = useGeneratePreviewsForStyles();
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [createTab, setCreateTab] = useState("text");
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   // Platform filter
@@ -90,6 +88,19 @@ export default function StylesPage() {
   // Inspector
   const [inspectStyle, setInspectStyle] = useState<any>(null);
   const [inspectOpen, setInspectOpen] = useState(false);
+
+  // Auto-seed: create missing caption styles OR generate samples for ones that have none
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (!styles || seededRef.current) return;
+    const captionStyles = styles.filter((s) => s.kind === "caption" && s.isPredefined);
+    const needsSeed = captionStyles.length === 0;
+    const needsSamples = captionStyles.some((s) => !s.sampleTexts || s.sampleTexts.length === 0);
+    if (needsSeed || needsSamples) {
+      seededRef.current = true;
+      seedStyles.mutate();
+    }
+  }, [styles]);
 
   // Caption create form state
   const [captionName, setCaptionName] = useState("");
@@ -128,8 +139,6 @@ export default function StylesPage() {
   const [blendPrompt, setBlendPrompt] = useState("");
   const [blendPlatforms, setBlendPlatforms] = useState<string[]>([]);
   const [blendParentIds, setBlendParentIds] = useState<string[]>([]);
-
-  const hasPredefined = styles?.some((s) => s.isPredefined) ?? false;
 
   // Filtered styles
   const filteredStyles =
@@ -210,17 +219,6 @@ export default function StylesPage() {
     });
   };
 
-  const handleGenerateAllPreviews = () => {
-    generateAllPreviews.mutate(undefined, {
-      onSuccess: (data) => {
-        if (data.queued === 0) {
-          toast.info(data.message);
-        }
-        // Toast tracking is handled by PreviewGenerationToast via server polling
-      },
-    });
-  };
-
   const handleGeneratePreview = () => {
     if (!newPromptText.trim()) {
       toast.error("Enter a style prompt first");
@@ -251,10 +249,12 @@ export default function StylesPage() {
         promptText: newPromptText,
       },
       {
-        onSuccess: () => {
-          toast.success("Style created");
+        onSuccess: (data) => {
+          toast.success("Style created — generating previews...");
           resetForm();
           setCreateOpen(false);
+          // Auto-generate IG preview images in background
+          generateForStyles.mutate({ styleIds: [data.id] });
         },
         onError: (err) =>
           toast.error(err.message ?? "Failed to create style"),
@@ -319,10 +319,11 @@ export default function StylesPage() {
           analyzedPrompt || "Custom style from reference image",
       },
       {
-        onSuccess: () => {
-          toast.success("Style created from image");
+        onSuccess: (data) => {
+          toast.success("Style created — generating previews...");
           resetForm();
           setCreateOpen(false);
+          generateForStyles.mutate({ styleIds: [data.id] });
         },
         onError: (err) =>
           toast.error(err.message ?? "Failed to create style"),
@@ -429,68 +430,18 @@ export default function StylesPage() {
   return (
     <div className="flex flex-1 flex-col gap-6 px-4 py-6 lg:px-6">
       {/* Action buttons */}
-      <div className="flex items-center justify-end">
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSeed}
-            disabled={seedStyles.isPending}
-            className="gap-1.5"
-          >
-            {seedStyles.isPending ? (
-              <Loader2Icon className="size-3.5 animate-spin" />
-            ) : (
-              <SparklesIcon className="size-3.5" />
-            )}
-            Sync Predefined Styles
-          </Button>
-          {styles && styles.some((s) =>
-            s.sampleImageIds.some((id) => !id.startsWith("style-previews/"))
-          ) && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => migrateToR2.mutate(undefined)}
-              disabled={migrateToR2.isPending}
-              className="gap-1.5"
-            >
-              {migrateToR2.isPending ? (
-                <Loader2Icon className="size-3.5 animate-spin" />
-              ) : (
-                <CloudIcon className="size-3.5" />
-              )}
-              Migrate to R2
-            </Button>
-          )}
-          {styles && styles.some((s) => s.sampleImageIds.length < 4) && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleGenerateAllPreviews}
-              disabled={generateAllPreviews.isPending}
-              className="gap-1.5"
-            >
-              {generateAllPreviews.isPending ? (
-                <Loader2Icon className="size-3.5 animate-spin" />
-              ) : (
-                <ImageIcon className="size-3.5" />
-              )}
-              Generate All Previews
-            </Button>
-          )}
-          <Button
-            size="sm"
-            onClick={() => {
-              resetForm();
-              setCreateOpen(true);
-            }}
-            className="gap-1.5"
-          >
-            <PlusIcon className="size-3.5" />
-            Create Style
-          </Button>
-        </div>
+      <div className="flex items-center justify-end gap-2">
+        <Button
+          size="sm"
+          onClick={() => {
+            resetForm();
+            setCreateOpen(true);
+          }}
+          className="gap-1.5"
+        >
+          <PlusIcon className="size-3.5" />
+          Create Style
+        </Button>
       </div>
 
       {/* Platform filter tabs */}
@@ -655,323 +606,327 @@ export default function StylesPage() {
           if (!open) resetForm();
         }}
       >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Create Style</DialogTitle>
-            <DialogDescription>
-              Define a visual style by writing a prompt or uploading a reference
-              image.
-            </DialogDescription>
-          </DialogHeader>
-
-          <Tabs defaultValue="text" className="mt-2">
-            <TabsList className="w-full">
-              <TabsTrigger value="text" className="flex-1 gap-1.5">
-                <PaletteIcon className="size-3.5" />
-                From Text
-              </TabsTrigger>
-              <TabsTrigger value="caption" className="flex-1 gap-1.5">
-                <TypeIcon className="size-3.5" />
-                Caption
-              </TabsTrigger>
-              <TabsTrigger value="image" className="flex-1 gap-1.5">
-                <UploadIcon className="size-3.5" />
-                From Image
-              </TabsTrigger>
-            </TabsList>
-
-            {/* FROM TEXT TAB */}
-            <TabsContent value="text" className="space-y-4 mt-4">
-              <div className="space-y-2">
-                <Label htmlFor="style-name">Name</Label>
-                <Input
-                  id="style-name"
-                  placeholder="e.g. Minimal Corporate"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                />
+        <DialogContent className="w-[90vw] !max-w-[90vw] h-[90vh] max-h-[90vh] overflow-hidden p-0">
+          <div className="grid grid-cols-1 md:grid-cols-2 h-[90vh]">
+            {/* Left column — Preview */}
+            <div className="flex flex-col bg-muted/30 p-6 overflow-y-auto">
+              <div className="flex items-center gap-2 mb-4">
+                <h3 className="text-sm font-medium text-muted-foreground">Preview</h3>
+                <Badge variant="outline" className="text-[10px]">
+                  {createTab === "caption" ? "Caption" : "Image"}
+                </Badge>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="style-description">
-                  Description{" "}
-                  <span className="text-muted-foreground">(optional)</span>
-                </Label>
-                <Input
-                  id="style-description"
-                  placeholder="Brief description of this style"
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="style-prompt">Style Prompt</Label>
-                <Textarea
-                  id="style-prompt"
-                  placeholder="Describe the visual style: colors, typography, mood, composition, textures..."
-                  value={newPromptText}
-                  onChange={(e) => setNewPromptText(e.target.value)}
-                  rows={5}
-                  className="resize-none"
-                />
-              </div>
-
-              {/* Preview area */}
-              {previewImageUrls.length > 0 && (
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">
-                    Preview
-                  </Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {previewImageUrls.map((url, i) => (
+              {createTab === "text" && (
+                <div className="grid grid-cols-2 gap-2 flex-1">
+                  {[0, 1, 2, 3].map((idx) => {
+                    const url = previewImageUrls[idx];
+                    return url ? (
                       <img
-                        key={i}
+                        key={idx}
                         src={url}
-                        alt="Style preview"
-                        className="aspect-square rounded-lg object-cover"
+                        alt=""
+                        className="aspect-square w-full rounded-lg object-cover"
+                        loading="lazy"
                       />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex gap-2 pt-2">
-                <Button
-                  variant="outline"
-                  onClick={handleGeneratePreview}
-                  disabled={
-                    generatePreview.isPending || !newPromptText.trim()
-                  }
-                  className="gap-1.5"
-                >
-                  {generatePreview.isPending ? (
-                    <Loader2Icon className="size-3.5 animate-spin" />
-                  ) : (
-                    <SparklesIcon className="size-3.5" />
-                  )}
-                  Generate Preview
-                </Button>
-                <Button
-                  onClick={handleSaveFromText}
-                  disabled={
-                    createStyle.isPending ||
-                    !newName.trim() ||
-                    !newPromptText.trim()
-                  }
-                  className="gap-1.5 flex-1"
-                >
-                  {createStyle.isPending && (
-                    <Loader2Icon className="size-3.5 animate-spin" />
-                  )}
-                  Save Style
-                </Button>
-              </div>
-            </TabsContent>
-
-            {/* CAPTION STYLE TAB */}
-            <TabsContent value="caption" className="space-y-4 mt-4">
-              <div className="space-y-2">
-                <Label htmlFor="caption-name">Name</Label>
-                <Input
-                  id="caption-name"
-                  placeholder="e.g. Professional & Concise"
-                  value={captionName}
-                  onChange={(e) => setCaptionName(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="caption-description">
-                  Description <span className="text-muted-foreground">(optional)</span>
-                </Label>
-                <Input
-                  id="caption-description"
-                  placeholder="Brief description of this writing style"
-                  value={captionDescription}
-                  onChange={(e) => setCaptionDescription(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="caption-prompt">Style Prompt</Label>
-                <Textarea
-                  id="caption-prompt"
-                  placeholder="Describe the writing style: tone, structure, emoji usage, hashtag style, CTA approach..."
-                  value={captionPromptText}
-                  onChange={(e) => setCaptionPromptText(e.target.value)}
-                  rows={5}
-                  className="resize-none"
-                />
-              </div>
-
-              {captionSampleTexts.length > 0 && (
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">Sample Captions</Label>
-                  <div className="space-y-2">
-                    {captionSampleTexts.map((text, i) => (
-                      <div key={i} className="rounded-lg border bg-muted/30 p-3 text-sm italic">
-                        &ldquo;{text}&rdquo;
+                    ) : (
+                      <div
+                        key={idx}
+                        className="flex aspect-square items-center justify-center rounded-lg border border-dashed border-muted-foreground/20 bg-muted/50"
+                      >
+                        <PlusIcon className="size-4 text-muted-foreground/30" />
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
               )}
 
-              <div className="flex gap-2 pt-2">
-                <Button
-                  variant="outline"
-                  onClick={handleGenerateCaptionPreview}
-                  disabled={generateCaptionPreview.isPending || !captionPromptText.trim()}
-                  className="gap-1.5"
-                >
-                  {generateCaptionPreview.isPending ? (
-                    <Loader2Icon className="size-3.5 animate-spin" />
-                  ) : (
-                    <SparklesIcon className="size-3.5" />
-                  )}
-                  Generate Samples
-                </Button>
-                <Button
-                  onClick={handleSaveCaptionStyle}
-                  disabled={createStyle.isPending || !captionName.trim() || !captionPromptText.trim()}
-                  className="gap-1.5 flex-1"
-                >
-                  {createStyle.isPending && <Loader2Icon className="size-3.5 animate-spin" />}
-                  Save Style
-                </Button>
-              </div>
-            </TabsContent>
-
-            {/* FROM IMAGE TAB */}
-            <TabsContent value="image" className="space-y-4 mt-4">
-              <div className="space-y-2">
-                <Label htmlFor="img-style-name">Name</Label>
-                <Input
-                  id="img-style-name"
-                  placeholder="e.g. My Brand Look"
-                  value={imgName}
-                  onChange={(e) => setImgName(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="img-style-description">
-                  Description{" "}
-                  <span className="text-muted-foreground">(optional)</span>
-                </Label>
-                <Input
-                  id="img-style-description"
-                  placeholder="Brief description"
-                  value={imgDescription}
-                  onChange={(e) => setImgDescription(e.target.value)}
-                />
-              </div>
-
-              {/* File upload drop zone */}
-              <div
-                className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors hover:border-primary/50"
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={handleDrop}
-              >
-                {uploadPreview ? (
-                  <div className="space-y-2 text-center">
-                    <img
-                      src={uploadPreview}
-                      alt="Uploaded reference"
-                      className="mx-auto max-h-40 rounded-lg object-contain"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {uploadedFile?.name}
-                    </p>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setUploadedFile(null);
-                        setUploadPreview(null);
-                      }}
+              {createTab === "caption" && (
+                <div className="space-y-3 flex-1">
+                  {captionSampleTexts.map((text, i) => (
+                    <div
+                      key={i}
+                      className="rounded-lg border bg-background/60 p-4 text-sm italic text-foreground/80"
                     >
-                      Remove
+                      &ldquo;{text}&rdquo;
+                    </div>
+                  ))}
+                  {captionSampleTexts.length === 0 && (
+                    <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                      No samples yet — generate them after writing a prompt
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {createTab === "image" && (
+                <div className="space-y-4 flex-1">
+                  {uploadPreview && (
+                    <div className="text-center">
+                      <p className="mb-2 text-xs text-muted-foreground">Reference Image</p>
+                      <img
+                        src={uploadPreview}
+                        alt="Reference"
+                        className="mx-auto max-h-40 rounded-lg object-contain"
+                      />
+                    </div>
+                  )}
+                  {imgPreviewUrls.length > 0 && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {imgPreviewUrls.map((url, i) => (
+                        <img
+                          key={i}
+                          src={url}
+                          alt=""
+                          className="aspect-square w-full rounded-lg object-cover"
+                          loading="lazy"
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {!uploadPreview && imgPreviewUrls.length === 0 && (
+                    <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                      Upload a reference image to extract a style
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {(generatePreview.isPending || styleFromImage.isPending || generateCaptionPreview.isPending) && (
+                <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2Icon className="size-3.5 animate-spin" />
+                  Generating...
+                </div>
+              )}
+            </div>
+
+            {/* Right column — Form */}
+            <div className="flex flex-col p-6 overflow-y-auto">
+              <DialogHeader className="mb-6">
+                <DialogTitle>Create Style</DialogTitle>
+                <DialogDescription>
+                  Define a visual style by writing a prompt or uploading a reference image.
+                </DialogDescription>
+              </DialogHeader>
+
+              <Tabs value={createTab} onValueChange={setCreateTab} className="flex-1">
+                <TabsList className="w-full">
+                  <TabsTrigger value="text" className="flex-1 gap-1.5">
+                    <PaletteIcon className="size-3.5" />
+                    From Text
+                  </TabsTrigger>
+                  <TabsTrigger value="caption" className="flex-1 gap-1.5">
+                    <TypeIcon className="size-3.5" />
+                    Caption
+                  </TabsTrigger>
+                  <TabsTrigger value="image" className="flex-1 gap-1.5">
+                    <UploadIcon className="size-3.5" />
+                    From Image
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* FROM TEXT TAB */}
+                <TabsContent value="text" className="space-y-5 mt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="style-name">Name</Label>
+                    <Input
+                      id="style-name"
+                      placeholder="e.g. Minimal Corporate"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="style-description">
+                      Description <span className="text-muted-foreground">(optional)</span>
+                    </Label>
+                    <Input
+                      id="style-description"
+                      placeholder="Brief description of this style"
+                      value={newDescription}
+                      onChange={(e) => setNewDescription(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="style-prompt">Style Prompt</Label>
+                    <Textarea
+                      id="style-prompt"
+                      placeholder="Describe the visual style: colors, typography, mood, composition, textures..."
+                      value={newPromptText}
+                      onChange={(e) => setNewPromptText(e.target.value)}
+                      rows={6}
+                      className="resize-none"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={handleGeneratePreview}
+                      disabled={generatePreview.isPending || !newPromptText.trim()}
+                      className="gap-1.5"
+                    >
+                      {generatePreview.isPending ? (
+                        <Loader2Icon className="size-3.5 animate-spin" />
+                      ) : (
+                        <SparklesIcon className="size-3.5" />
+                      )}
+                      Preview
+                    </Button>
+                    <Button
+                      onClick={handleSaveFromText}
+                      disabled={createStyle.isPending || !newName.trim() || !newPromptText.trim()}
+                      className="gap-1.5 flex-1"
+                    >
+                      {createStyle.isPending && <Loader2Icon className="size-3.5 animate-spin" />}
+                      Save Style
                     </Button>
                   </div>
-                ) : (
-                  <>
-                    <UploadIcon className="size-8 text-muted-foreground/40" />
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      Drag & drop an image here
-                    </p>
-                    <p className="text-xs text-muted-foreground/60">
-                      or click to browse
-                    </p>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileChange}
-                      className="absolute inset-0 cursor-pointer opacity-0"
-                      style={{ position: "relative" }}
+                </TabsContent>
+
+                {/* CAPTION STYLE TAB */}
+                <TabsContent value="caption" className="space-y-5 mt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="caption-name">Name</Label>
+                    <Input
+                      id="caption-name"
+                      placeholder="e.g. Professional & Concise"
+                      value={captionName}
+                      onChange={(e) => setCaptionName(e.target.value)}
                     />
-                  </>
-                )}
-              </div>
-
-              {/* Analyzed result */}
-              {analyzedPrompt && (
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">
-                    Extracted Style Description
-                  </Label>
-                  <p className="rounded-lg border bg-muted/30 p-3 text-sm">
-                    {analyzedPrompt}
-                  </p>
-                </div>
-              )}
-
-              {imgPreviewUrls.length > 0 && (
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">
-                    Generated Samples
-                  </Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {imgPreviewUrls.map((url, i) => (
-                      <img
-                        key={i}
-                        src={url}
-                        alt="Sample"
-                        className="aspect-square rounded-lg object-cover"
-                      />
-                    ))}
                   </div>
-                </div>
-              )}
+                  <div className="space-y-2">
+                    <Label htmlFor="caption-description">
+                      Description <span className="text-muted-foreground">(optional)</span>
+                    </Label>
+                    <Input
+                      id="caption-description"
+                      placeholder="Brief description of this writing style"
+                      value={captionDescription}
+                      onChange={(e) => setCaptionDescription(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="caption-prompt">Style Prompt</Label>
+                    <Textarea
+                      id="caption-prompt"
+                      placeholder="Describe the writing style: tone, structure, emoji usage, hashtag style, CTA approach..."
+                      value={captionPromptText}
+                      onChange={(e) => setCaptionPromptText(e.target.value)}
+                      rows={6}
+                      className="resize-none"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={handleGenerateCaptionPreview}
+                      disabled={generateCaptionPreview.isPending || !captionPromptText.trim()}
+                      className="gap-1.5"
+                    >
+                      {generateCaptionPreview.isPending ? (
+                        <Loader2Icon className="size-3.5 animate-spin" />
+                      ) : (
+                        <SparklesIcon className="size-3.5" />
+                      )}
+                      Generate Samples
+                    </Button>
+                    <Button
+                      onClick={handleSaveCaptionStyle}
+                      disabled={createStyle.isPending || !captionName.trim() || !captionPromptText.trim()}
+                      className="gap-1.5 flex-1"
+                    >
+                      {createStyle.isPending && <Loader2Icon className="size-3.5 animate-spin" />}
+                      Save Style
+                    </Button>
+                  </div>
+                </TabsContent>
 
-              <div className="flex gap-2 pt-2">
-                <Button
-                  variant="outline"
-                  onClick={handleAnalyzeImage}
-                  disabled={styleFromImage.isPending || !uploadedFile}
-                  className="gap-1.5"
-                >
-                  {styleFromImage.isPending ? (
-                    <Loader2Icon className="size-3.5 animate-spin" />
-                  ) : (
-                    <SparklesIcon className="size-3.5" />
+                {/* FROM IMAGE TAB */}
+                <TabsContent value="image" className="space-y-5 mt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="img-style-name">Name</Label>
+                    <Input
+                      id="img-style-name"
+                      placeholder="e.g. My Brand Look"
+                      value={imgName}
+                      onChange={(e) => setImgName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="img-style-description">
+                      Description <span className="text-muted-foreground">(optional)</span>
+                    </Label>
+                    <Input
+                      id="img-style-description"
+                      placeholder="Brief description"
+                      value={imgDescription}
+                      onChange={(e) => setImgDescription(e.target.value)}
+                    />
+                  </div>
+                  {/* File upload drop zone */}
+                  <div
+                    className="relative flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors hover:border-primary/50"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={handleDrop}
+                  >
+                    {uploadPreview ? (
+                      <div className="space-y-2 text-center">
+                        <p className="text-xs text-muted-foreground">{uploadedFile?.name}</p>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => { setUploadedFile(null); setUploadPreview(null); }}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <UploadIcon className="size-8 text-muted-foreground/40" />
+                        <p className="mt-2 text-sm text-muted-foreground">Drag & drop an image here</p>
+                        <p className="text-xs text-muted-foreground/60">or click to browse</p>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleFileChange}
+                          className="absolute inset-0 cursor-pointer opacity-0"
+                        />
+                      </>
+                    )}
+                  </div>
+                  {analyzedPrompt && (
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">Extracted Style Description</Label>
+                      <p className="rounded-lg border bg-muted/30 p-3 text-sm">{analyzedPrompt}</p>
+                    </div>
                   )}
-                  Analyze & Generate
-                </Button>
-                <Button
-                  onClick={handleSaveFromImage}
-                  disabled={createStyle.isPending || !imgName.trim()}
-                  className="gap-1.5 flex-1"
-                >
-                  {createStyle.isPending && (
-                    <Loader2Icon className="size-3.5 animate-spin" />
-                  )}
-                  Save Style
-                </Button>
-              </div>
-            </TabsContent>
-          </Tabs>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={handleAnalyzeImage}
+                      disabled={styleFromImage.isPending || !uploadedFile}
+                      className="gap-1.5"
+                    >
+                      {styleFromImage.isPending ? (
+                        <Loader2Icon className="size-3.5 animate-spin" />
+                      ) : (
+                        <SparklesIcon className="size-3.5" />
+                      )}
+                      Analyze & Generate
+                    </Button>
+                    <Button
+                      onClick={handleSaveFromImage}
+                      disabled={createStyle.isPending || !imgName.trim()}
+                      className="gap-1.5 flex-1"
+                    >
+                      {createStyle.isPending && <Loader2Icon className="size-3.5 animate-spin" />}
+                      Save Style
+                    </Button>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -1133,6 +1088,22 @@ export default function StylesPage() {
         onOpenChange={(open) => {
           setInspectOpen(open);
           if (!open) setInspectStyle(null);
+        }}
+        onRemix={() => {
+          if (inspectStyle) {
+            const styleId = inspectStyle.id;
+            setInspectOpen(false);
+            setInspectStyle(null);
+            handleRemix(styleId);
+          }
+        }}
+        onBlend={() => {
+          if (inspectStyle) {
+            const styleId = inspectStyle.id;
+            setInspectOpen(false);
+            setInspectStyle(null);
+            handleBlendStart(styleId);
+          }
         }}
       />
     </div>

@@ -21,8 +21,27 @@ import {
   MergeIcon,
   PlusIcon,
   EyeIcon,
+  TypeIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const PLATFORM_SHORT: Record<string, string> = {
+  instagram: "IG",
+  linkedin: "LinkedIn",
+  x: "X",
+  reddit: "Reddit",
+  blog: "Blog",
+  email: "Email",
+};
+
+function getStyleBadge(style: StyleCardStyle): string {
+  const kind = style.kind ?? "image";
+  const platform = style.platforms?.[0];
+  const platformLabel = platform ? PLATFORM_SHORT[platform] ?? platform : null;
+  const kindLabel = kind === "caption" ? "Caption" : "Post";
+  if (platformLabel) return `${platformLabel} ${kindLabel}`;
+  return kind === "caption" ? "Caption" : "Image";
+}
 
 export interface StyleCardStyle {
   id: string;
@@ -70,21 +89,27 @@ export function StyleCard({
       onClick={onSelect}
     >
       {/* Preview Area */}
-      <div className="aspect-square overflow-hidden bg-muted">
+      <div className={cn("aspect-square overflow-hidden", isCaption ? "bg-background" : "bg-muted")}>
         {isCaption ? (
-          /* Caption style: show sample texts */
-          <div className="flex h-full flex-col justify-center gap-2 p-4">
-            {(style.sampleTexts ?? []).slice(0, 3).map((text, i) => (
-              <p
-                key={i}
-                className="line-clamp-2 rounded bg-background/60 px-2 py-1.5 text-[11px] leading-relaxed text-foreground/80 italic"
-              >
-                &ldquo;{text}&rdquo;
-              </p>
-            ))}
-            {(!style.sampleTexts || style.sampleTexts.length === 0) && (
-              <div className="flex size-full items-center justify-center">
-                <span className="text-xs text-muted-foreground">No samples</span>
+          /* Caption style: clean lined-paper look */
+          <div className="flex h-full flex-col justify-center px-5 py-4">
+            {(style.sampleTexts ?? []).length > 0 ? (
+              <div className="space-y-3">
+                {(style.sampleTexts ?? []).slice(0, 2).map((text, i) => (
+                  <p
+                    key={i}
+                    className={cn(
+                      "line-clamp-4 text-xs leading-relaxed text-foreground/70",
+                      i === 0 && "text-foreground/90"
+                    )}
+                  >
+                    {text}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-1 items-center justify-center">
+                <TypeIcon className="size-8 text-muted-foreground/20" />
               </div>
             )}
           </div>
@@ -117,7 +142,7 @@ export function StyleCard({
         <div className="flex items-start justify-between gap-2">
           <CardTitle className="line-clamp-1 text-sm">{style.name}</CardTitle>
           <Badge variant="outline" className="shrink-0 text-[10px]">
-            {isCaption ? "Caption" : style.isPredefined ? "Predefined" : "Custom"}
+            {getStyleBadge(style)}
           </Badge>
         </div>
         {style.description && (

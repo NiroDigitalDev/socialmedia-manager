@@ -12,9 +12,12 @@ export function useBrandIdentities(projectId: string | null | undefined) {
   });
 }
 
-export function useBrandIdentity(id: string) {
+export function useBrandIdentity(id: string | null | undefined) {
   const trpc = useTRPC();
-  return useQuery(trpc.brandIdentity.get.queryOptions({ id }));
+  return useQuery({
+    ...trpc.brandIdentity.get.queryOptions({ id: id! }),
+    enabled: !!id,
+  });
 }
 
 export function useCreateBrandIdentity() {

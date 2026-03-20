@@ -188,6 +188,16 @@ export function useMigrateStylesToR2() {
   });
 }
 
+export function useGeneratePreviewsForStyles() {
+  const trpc = useTRPC();
+  return useMutation({
+    ...trpc.style.generatePreviewsForStyles.mutationOptions(),
+    onError: () => {
+      toast.error("Failed to start preview generation");
+    },
+  });
+}
+
 export function useGenerateCaptionPreview() {
   const trpc = useTRPC();
   return useMutation({

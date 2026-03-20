@@ -146,7 +146,7 @@ export default function TreeCanvasPage({
       />
 
       {/* Canvas + Detail Panel */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="relative flex-1">
           {nodes.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
@@ -190,8 +190,8 @@ export default function TreeCanvasPage({
           )}
         </div>
         {selectedNode && (
-          <div className="w-[400px] border-l">
-            <DetailPanel node={selectedNode} treeId={treeId} allNodes={nodes} />
+          <div className="w-[480px] shrink-0 border-l h-full overflow-hidden">
+            <DetailPanel node={selectedNode} treeId={treeId} allNodes={nodes} projectId={projectId} />
           </div>
         )}
       </div>

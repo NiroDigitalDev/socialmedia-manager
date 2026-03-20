@@ -4,21 +4,18 @@ import { useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useGenerateStore } from "@/stores/use-generate-store";
 import { StepNavigator } from "./step-navigator";
-import { StepPlatforms } from "./step-platforms";
 import { StepContent } from "./step-content";
+import { StepStyle } from "./step-style";
 import { StepOutline } from "./step-outline";
-import { StepStyleBrand } from "./step-style-brand";
 import { StepSettings } from "./step-settings";
 import { StepResults } from "./step-results";
-import { PreviewPanel } from "./preview-panel";
 
 const stepComponents = [
-  StepPlatforms, // step 1
-  StepContent, // step 2
-  StepOutline, // step 3
-  StepStyleBrand, // step 4
-  StepSettings, // step 5
-  StepResults, // step 6
+  StepContent,   // step 1
+  StepStyle,     // step 2
+  StepOutline,   // step 3
+  StepSettings,  // step 4
+  StepResults,   // step 5
 ];
 
 interface GenerateFlowProps {
@@ -34,7 +31,7 @@ export function GenerateFlow({ projectId, campaignId }: GenerateFlowProps) {
   useEffect(() => {
     setContext(projectId ?? null, campaignId ?? null);
     const urlStep = parseInt(searchParams.get("step") ?? "1");
-    if (urlStep >= 1 && urlStep <= 6) setStep(urlStep);
+    if (urlStep >= 1 && urlStep <= 5) setStep(urlStep);
     return () => reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -46,7 +43,7 @@ export function GenerateFlow({ projectId, campaignId }: GenerateFlowProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
-  const ActiveStep = stepComponents[step - 1] ?? StepPlatforms;
+  const ActiveStep = stepComponents[step - 1] ?? StepContent;
 
   return (
     <div className="flex flex-1 gap-4 px-4 py-6 lg:px-6">
@@ -54,7 +51,6 @@ export function GenerateFlow({ projectId, campaignId }: GenerateFlowProps) {
       <div className="flex-1 min-w-0">
         <ActiveStep />
       </div>
-      <PreviewPanel />
     </div>
   );
 }

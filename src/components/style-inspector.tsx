@@ -27,6 +27,8 @@ import {
   CheckIcon,
   XIcon,
   PlusIcon,
+  ShuffleIcon,
+  MergeIcon,
 } from "lucide-react";
 import {
   useGenerateStylePreview,
@@ -34,6 +36,7 @@ import {
   useSaveStyleWithHistory,
   useStyleHistory,
   useRestoreStyleHistory,
+  useGeneratePreviewsForStyles,
 } from "@/hooks/use-styles";
 import { toast } from "sonner";
 
@@ -51,13 +54,16 @@ interface StyleInspectorProps {
   } | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onRemix?: () => void;
+  onBlend?: () => void;
 }
 
-export function StyleInspector({ style, open, onOpenChange }: StyleInspectorProps) {
+export function StyleInspector({ style, open, onOpenChange, onRemix, onBlend }: StyleInspectorProps) {
   const generateImagePreview = useGenerateStylePreview();
   const generateCaptionPreview = useGenerateCaptionPreview();
   const saveWithHistory = useSaveStyleWithHistory();
   const restoreHistory = useRestoreStyleHistory();
+  const generateForStyles = useGeneratePreviewsForStyles();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -118,6 +124,7 @@ export function StyleInspector({ style, open, onOpenChange }: StyleInspectorProp
   };
 
   const handleSave = () => {
+    const promptChanged = prompt !== style.promptText;
     saveWithHistory.mutate(
       {
         id: style.id,
@@ -135,6 +142,10 @@ export function StyleInspector({ style, open, onOpenChange }: StyleInspectorProp
           setPendingImageIds(null);
           setPendingTexts(null);
           onOpenChange(false);
+          // Auto-generate new IG preview images if prompt changed and no pending images were explicitly set
+          if (promptChanged && isImage && !pendingImageIds) {
+            generateForStyles.mutate({ styleIds: [style.id] });
+          }
         },
       }
     );
@@ -265,7 +276,7 @@ export function StyleInspector({ style, open, onOpenChange }: StyleInspectorProp
               </div>
 
               {/* Actions */}
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
                   onClick={handleRegenerate}
@@ -279,6 +290,26 @@ export function StyleInspector({ style, open, onOpenChange }: StyleInspectorProp
                   )}
                   Regenerate
                 </Button>
+                {onRemix && (
+                  <Button
+                    variant="outline"
+                    onClick={() => { onOpenChange(false); onRemix(); }}
+                    className="gap-1.5"
+                  >
+                    <ShuffleIcon className="size-3.5" />
+                    Remix
+                  </Button>
+                )}
+                {onBlend && (
+                  <Button
+                    variant="outline"
+                    onClick={() => { onOpenChange(false); onBlend(); }}
+                    className="gap-1.5"
+                  >
+                    <MergeIcon className="size-3.5" />
+                    Blend
+                  </Button>
+                )}
                 {dirty && (
                   <>
                     <Button

@@ -209,18 +209,45 @@ export function useBulkDeleteIdeas() {
   });
 }
 
+export function useCreateSourceFromFile() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  return useMutation({
+    ...trpc.content.createSourceFromFile.mutationOptions(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: trpc.content.listSources.queryKey() });
+    },
+    onError: () => {
+      toast.error("Failed to create source from file");
+    },
+  });
+}
+
+export function useParseFile() {
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/content/parse-file", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to parse file");
+      return data as { text: string; pageCount: number | null };
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? "Failed to parse file");
+    },
+  });
+}
+
 export function useGenerateIdeas() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const { mutationFn } = trpc.content.generateIdeas.mutationOptions();
   return useMutation({
     mutationFn,
-    onSuccess: (data) => {
-      toast.success(`Generated ${data.count} ideas`);
-    },
-    onError: () => {
-      toast.error("Failed to generate content ideas");
-    },
     onSettled: () => {
       // Invalidate both sources (idea count changed) and ideas list
       queryClient.invalidateQueries({

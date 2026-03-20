@@ -98,26 +98,10 @@ Example: [{ "platform": "instagram", "headline": "...", "sections": [...], "tone
           .object({ accent: z.string(), bg: z.string() })
           .optional(),
         formatPerPlatform: z
-          .record(
-            platformSchema,
-            z.enum([
-              "static",
-              "carousel",
-              "text",
-              "short",
-              "long",
-              "thread",
-              "single",
-              "standard",
-              "listicle",
-              "newsletter",
-              "marketing",
-              "image",
-            ])
-          )
+          .record(z.string(), z.string())
           .optional(),
         aspectRatioPerPlatform: z
-          .record(platformSchema, aspectRatioSchema)
+          .record(z.string(), z.string())
           .optional(),
         model: modelKeySchema.default("nano-banana-2"),
         variations: z.number().min(1).max(6).default(1),

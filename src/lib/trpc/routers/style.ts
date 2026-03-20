@@ -55,6 +55,91 @@ function sampleIdToOriginalUrl(id: string, ext = "png"): string {
   return `/api/images/${id}?type=stored`;
 }
 
+// ── Shared background generation helpers ──
+
+type StyleForGeneration = {
+  id: string;
+  name: string;
+  promptText: string;
+  sampleImageIds: string[];
+};
+
+const GENERATION_BATCH_SIZE = 5; // 5 styles × 4 images = 20 concurrent image generations
+
+function toIgPrompt(promptText: string): string {
+  return `Create a visually stunning Instagram social media post image. The visual style is: ${promptText}. The image should look like a professional, polished Instagram post with engaging lifestyle content, proper composition for social media, and beautiful visual storytelling.`;
+}
+
+/** Generate IG-style preview images for a single style and persist to R2 + DB */
+async function generateStyleImages(style: StyleForGeneration, force: boolean) {
+  const count = force ? 4 : Math.max(0, 4 - style.sampleImageIds.length);
+  if (count === 0) return;
+
+  const results = await Promise.all(
+    Array.from({ length: count }, () =>
+      generateImage(toIgPrompt(style.promptText), "nano-banana-2", "1:1")
+    )
+  );
+
+  const r2Keys = await Promise.all(
+    results.map((img) => uploadStylePreviewToR2(img.base64, img.mimeType))
+  );
+
+  const newIds = force ? r2Keys : [...style.sampleImageIds, ...r2Keys];
+
+  await globalPrisma.style.update({
+    where: { id: style.id },
+    data: { sampleImageIds: newIds },
+  });
+
+  // Clean up old R2 images when force-regenerating
+  if (force && style.sampleImageIds.length > 0) {
+    const oldR2Keys = style.sampleImageIds.filter((k) => k.startsWith("style-previews/"));
+    await Promise.allSettled(
+      oldR2Keys.flatMap((k) => [
+        deleteFromR2(`${k}.webp`),
+        deleteFromR2(`${k}.png`),
+        deleteFromR2(`${k}.jpg`),
+      ])
+    );
+  }
+}
+
+/** Start background generation for a list of styles with progress tracking.
+ *  Returns false if generation is already running. */
+function startBackgroundGeneration(
+  styles: StyleForGeneration[],
+  force: boolean
+): boolean {
+  if (previewProgress.isRunning) return false;
+
+  previewProgress.isRunning = true;
+  previewProgress.completed = 0;
+  previewProgress.total = styles.length;
+  previewProgress.currentStyle = styles[0]?.name ?? "";
+
+  (async () => {
+    for (let i = 0; i < styles.length; i += GENERATION_BATCH_SIZE) {
+      const batch = styles.slice(i, i + GENERATION_BATCH_SIZE);
+      previewProgress.currentStyle = batch.map((s) => s.name).join(", ");
+      await Promise.all(
+        batch.map(async (style) => {
+          try {
+            await generateStyleImages(style, force);
+          } catch (err) {
+            console.error(`Failed to generate previews for style "${style.name}":`, err);
+          }
+          previewProgress.completed++;
+        })
+      );
+    }
+    previewProgress.isRunning = false;
+    previewProgress.currentStyle = "";
+  })();
+
+  return true;
+}
+
 const ALL_PLATFORMS = ["instagram", "linkedin", "x", "reddit", "blog", "email"] as const;
 export type Platform = (typeof ALL_PLATFORMS)[number];
 
@@ -63,6 +148,7 @@ const PREDEFINED_STYLES: Array<{
   description: string;
   promptText: string;
   platforms: string[];
+  kind?: string;
 }> = [
   {
     name: "Corporate Clean",
@@ -337,6 +423,47 @@ const PREDEFINED_STYLES: Array<{
       "Synthwave retro aesthetic, chrome text effects, sunset gradient sky pink to purple, wireframe mountains, retro sports car, laser grid floor, 1980s sci-fi movie poster feel, retrowave digital art",
     platforms: ["instagram"],
   },
+  // ── Caption / text styles ──
+  {
+    name: "Professional & Concise",
+    description: "Business-forward tone with clear, structured messaging",
+    promptText:
+      "Write in a professional, concise business tone. Use clear and direct language. Minimal emojis (1-2 max). Include a subtle call-to-action. Keep sentences short and impactful. Structure with line breaks for readability.",
+    platforms: ["instagram"],
+    kind: "caption",
+  },
+  {
+    name: "Casual & Friendly",
+    description: "Conversational everyday tone with emojis",
+    promptText:
+      "Write in a casual, friendly conversational tone like talking to a friend. Use emojis naturally throughout. Keep it relatable and approachable. Short sentences, contractions, and everyday language. End with a question to drive engagement.",
+    platforms: ["instagram"],
+    kind: "caption",
+  },
+  {
+    name: "Inspirational & Motivational",
+    description: "Uplifting quotes and powerful language",
+    promptText:
+      "Write in an inspirational, motivational tone. Use powerful, emotive language. Include quotable one-liners. Build up to a strong finish. Use relevant hashtags. Line breaks between key phrases for dramatic effect. Occasional 🔥💪✨ emojis.",
+    platforms: ["instagram"],
+    kind: "caption",
+  },
+  {
+    name: "Witty & Playful",
+    description: "Humor, wordplay, and pop culture references",
+    promptText:
+      "Write in a witty, playful tone with clever wordplay and puns. Use humor that's smart but accessible. Reference pop culture where relevant. Keep it light and entertaining. Surprise the reader with an unexpected twist or punchline.",
+    platforms: ["instagram"],
+    kind: "caption",
+  },
+  {
+    name: "Storytelling & Narrative",
+    description: "Mini-stories with emotional hooks",
+    promptText:
+      "Write as a mini-story or personal narrative. Start with an attention-grabbing hook. Build tension or curiosity. Use descriptive, sensory language. End with a meaningful takeaway or call-to-action. Make the reader feel something.",
+    platforms: ["instagram"],
+    kind: "caption",
+  },
 ];
 
 export const styleRouter = router({
@@ -482,12 +609,13 @@ export const styleRouter = router({
   generatePreview: orgProtectedProcedure
     .input(z.object({ promptText: z.string().min(1) }))
     .mutation(async ({ input }) => {
-      // Generate 4 sample images (2x2 grid) and upload to R2
+      // Generate 4 IG-style sample images and upload to R2 (original + WebP)
+      const igPrompt = toIgPrompt(input.promptText);
       const results = await Promise.all([
-        generateImage(input.promptText, "nano-banana-2", "1:1"),
-        generateImage(input.promptText, "nano-banana-2", "1:1"),
-        generateImage(input.promptText, "nano-banana-2", "1:1"),
-        generateImage(input.promptText, "nano-banana-2", "1:1"),
+        generateImage(igPrompt, "nano-banana-2", "1:1"),
+        generateImage(igPrompt, "nano-banana-2", "1:1"),
+        generateImage(igPrompt, "nano-banana-2", "1:1"),
+        generateImage(igPrompt, "nano-banana-2", "1:1"),
       ]);
 
       const r2Keys = await Promise.all(
@@ -505,78 +633,74 @@ export const styleRouter = router({
     return { ...previewProgress };
   }),
 
-  // Bulk generate 4 preview images for all styles that have fewer than 4
-  generateAllPreviews: orgProtectedProcedure.mutation(async ({ ctx }) => {
-    if (previewProgress.isRunning) {
-      return {
-        message: "Generation already in progress",
-        queued: previewProgress.total - previewProgress.completed,
-        total: previewProgress.total,
-      };
-    }
+  // Bulk generate preview images for all styles. force=true regenerates all.
+  generateAllPreviews: orgProtectedProcedure
+    .input(z.object({ force: z.boolean().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const force = input?.force ?? false;
 
-    const styles = await ctx.prisma.style.findMany({
-      where: {
-        OR: [
-          { orgId: ctx.orgId },
-          { isPredefined: true, orgId: null },
-        ],
-      },
-      select: { id: true, name: true, promptText: true, sampleImageIds: true },
-      orderBy: { createdAt: "asc" },
-    });
-
-    const needsGeneration = styles.filter((s) => s.sampleImageIds.length < 4);
-    const total = needsGeneration.length;
-
-    if (total === 0) {
-      return { message: "All styles already have 4 previews", queued: 0, total: styles.length };
-    }
-
-    // Set progress state and kick off background work using global prisma
-    previewProgress.isRunning = true;
-    previewProgress.completed = 0;
-    previewProgress.total = total;
-    previewProgress.currentStyle = needsGeneration[0]?.name ?? "";
-
-    // Background processing — uses global prisma + R2 (survives request lifecycle)
-    (async () => {
-      for (const style of needsGeneration) {
-        previewProgress.currentStyle = style.name;
-        try {
-          const needed = 4 - style.sampleImageIds.length;
-          const results = await Promise.all(
-            Array.from({ length: needed }, () =>
-              generateImage(style.promptText, "nano-banana-2", "1:1")
-            )
-          );
-
-          // Upload to R2 instead of storing blobs in PostgreSQL
-          const r2Keys = await Promise.all(
-            results.map((img) => uploadStylePreviewToR2(img.base64, img.mimeType))
-          );
-
-          await globalPrisma.style.update({
-            where: { id: style.id },
-            data: {
-              sampleImageIds: [...style.sampleImageIds, ...r2Keys],
-            },
-          });
-        } catch (err) {
-          console.error(`Failed to generate previews for style "${style.name}":`, err);
-        }
-        previewProgress.completed++;
+      if (previewProgress.isRunning) {
+        return {
+          message: "Generation already in progress",
+          queued: previewProgress.total - previewProgress.completed,
+          total: previewProgress.total,
+        };
       }
-      previewProgress.isRunning = false;
-      previewProgress.currentStyle = "";
-    })();
 
-    return {
-      message: `Generating previews for ${total} styles in background`,
-      queued: total,
-      total: styles.length,
-    };
-  }),
+      const styles = await ctx.prisma.style.findMany({
+        where: {
+          OR: [
+            { orgId: ctx.orgId },
+            { isPredefined: true, orgId: null },
+          ],
+          kind: { not: "caption" },
+        },
+        select: { id: true, name: true, promptText: true, sampleImageIds: true },
+        orderBy: { createdAt: "asc" },
+      });
+
+      const needsGeneration = force
+        ? styles
+        : styles.filter((s) => s.sampleImageIds.length < 4);
+
+      if (needsGeneration.length === 0) {
+        return { message: "All styles already have 4 previews", queued: 0, total: styles.length };
+      }
+
+      startBackgroundGeneration(needsGeneration, force);
+
+      return {
+        message: `Generating previews for ${needsGeneration.length} styles in background`,
+        queued: needsGeneration.length,
+        total: styles.length,
+      };
+    }),
+
+  // Generate previews for specific styles (used after create / save with prompt change)
+  generatePreviewsForStyles: orgProtectedProcedure
+    .input(z.object({ styleIds: z.array(z.string()) }))
+    .mutation(async ({ ctx, input }) => {
+      const styles = await ctx.prisma.style.findMany({
+        where: {
+          id: { in: input.styleIds },
+          kind: { not: "caption" },
+        },
+        select: { id: true, name: true, promptText: true, sampleImageIds: true },
+      });
+
+      if (styles.length === 0) {
+        return { message: "No image styles to generate", queued: 0 };
+      }
+
+      if (!startBackgroundGeneration(styles, true)) {
+        return { message: "Generation already in progress — try again shortly", queued: 0 };
+      }
+
+      return {
+        message: `Generating previews for ${styles.length} styles`,
+        queued: styles.length,
+      };
+    }),
 
   // Migrate existing StoredImage blobs to R2 for all styles
   migrateToR2: orgProtectedProcedure.mutation(async ({ ctx }) => {
@@ -677,6 +801,7 @@ export const styleRouter = router({
           description: style.description,
           promptText: style.promptText,
           platforms: style.platforms,
+          kind: style.kind ?? "image",
           sampleImageIds: [],
           isPredefined: true,
         })),
@@ -701,6 +826,44 @@ export const styleRouter = router({
 
     if (updates.length > 0) {
       await Promise.all(updates);
+    }
+
+    // Auto-generate caption samples for any predefined caption styles missing them
+    const captionStylesMissingSamples = await ctx.prisma.style.findMany({
+      where: { isPredefined: true, kind: "caption", sampleTexts: { equals: [] } },
+      select: { id: true, name: true, promptText: true },
+    });
+
+    if (captionStylesMissingSamples.length > 0) {
+      // Generate caption samples in parallel (text gen is fast)
+      await Promise.all(
+        captionStylesMissingSamples.map(async (cs) => {
+          try {
+            const prompt = `You are a social media caption writer. Your writing style is described as: "${cs.promptText}"
+
+Generate exactly 3 short Instagram caption examples (each 1-3 sentences) that demonstrate this writing style. The captions should be for generic lifestyle/brand content so they showcase the STYLE, not specific content.
+
+Return ONLY the 3 captions, separated by the delimiter "---". No numbering, no labels, no explanation.`;
+
+            const result = await geminiPro.generateContent(prompt);
+            const cleaned = (typeof result === "string" ? result : "").trim();
+            const samples = cleaned
+              .split("---")
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0)
+              .slice(0, 3);
+
+            if (samples.length > 0) {
+              await ctx.prisma.style.update({
+                where: { id: cs.id },
+                data: { sampleTexts: samples },
+              });
+            }
+          } catch (err) {
+            console.error(`Failed to generate caption samples for style "${cs.name}":`, err);
+          }
+        })
+      );
     }
 
     return {

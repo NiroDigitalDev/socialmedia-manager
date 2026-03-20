@@ -52,6 +52,63 @@ export const contentRouter = router({
       });
     }),
 
+  createSourceFromFile: orgProtectedProcedure
+    .input(
+      z.object({
+        rawText: z.string().min(1),
+        fileName: z.string().min(1),
+        projectId: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (input.projectId) {
+        const project = await ctx.prisma.project.findFirst({
+          where: { id: input.projectId, orgId: ctx.orgId },
+        });
+        if (!project)
+          throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+      }
+
+      // Use AI to generate a title and description from the content
+      const snippet = input.rawText.slice(0, 3000);
+      const prompt = `Analyze this content and generate a short title (max 80 chars) and a one-sentence description (max 200 chars) summarizing what it's about.
+
+Content (first 3000 chars):
+"""
+${snippet}
+"""
+
+File name: ${input.fileName}
+
+Return ONLY valid JSON in this exact format, nothing else:
+{"title": "...", "description": "..."}`;
+
+      let title = input.fileName.replace(/\.(pdf|md|txt|markdown)$/i, "");
+      let description = "";
+
+      try {
+        const result = await geminiText.generateContent(prompt);
+        const cleaned = (typeof result === "string" ? result : "")
+          .replace(/```json\n?/g, "")
+          .replace(/```\n?/g, "")
+          .trim();
+        const parsed = JSON.parse(cleaned);
+        if (parsed.title) title = parsed.title.slice(0, 200);
+        if (parsed.description) description = parsed.description.slice(0, 500);
+      } catch {
+        // Fall back to file name as title
+      }
+
+      return ctx.prisma.contentSource.create({
+        data: {
+          title,
+          rawText: input.rawText,
+          projectId: input.projectId,
+          orgId: ctx.orgId,
+        },
+      });
+    }),
+
   updateSource: orgProtectedProcedure
     .input(
       z.object({

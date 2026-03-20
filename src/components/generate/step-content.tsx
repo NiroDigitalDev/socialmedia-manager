@@ -22,6 +22,7 @@ import {
   CheckCircleIcon,
   FileTextIcon,
   UploadIcon,
+  BookmarkIcon,
 } from "lucide-react";
 
 const R2_PUBLIC_URL = process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? "";
@@ -45,7 +46,7 @@ function WriteMode() {
     <Textarea
       value={content.prompt}
       onChange={(e) => setContent({ prompt: e.target.value })}
-      placeholder="Describe your content. Be as detailed as you like — the AI will use this to generate an outline for each platform."
+      placeholder="Describe your content. Be as detailed as you like — the AI will use this to generate an outline."
       rows={8}
       className="resize-none"
     />
@@ -55,9 +56,10 @@ function WriteMode() {
 function FromIdeaMode() {
   const { content, setContent, projectId } = useGenerateStore();
   const [search, setSearch] = useState("");
+  const [showSavedOnly, setShowSavedOnly] = useState(false);
   const { data: ideas, isLoading } = useIdeas({
     projectId: projectId ?? undefined,
-    isSaved: true,
+    ...(showSavedOnly ? { isSaved: true } : {}),
   });
 
   const filteredIdeas = ideas?.filter((idea) =>
@@ -68,14 +70,25 @@ function FromIdeaMode() {
 
   return (
     <div className="space-y-3">
-      <div className="relative">
-        <SearchIcon className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Search saved ideas..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
-        />
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <SearchIcon className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search ideas..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Button
+          variant={showSavedOnly ? "default" : "outline"}
+          size="sm"
+          onClick={() => setShowSavedOnly(!showSavedOnly)}
+          className="shrink-0 gap-1.5"
+        >
+          <BookmarkIcon className="size-3.5" />
+          Saved
+        </Button>
       </div>
 
       <ScrollArea className="h-[320px]">
@@ -102,6 +115,10 @@ function FromIdeaMode() {
                     setContent({
                       prompt: idea.ideaText,
                       contentIdeaId: idea.id,
+                      format: idea.format === "carousel" ? "carousel" : "static",
+                      slideCount: idea.slideCount ?? undefined,
+                      slidePrompts: idea.slidePrompts as string[] | undefined,
+                      styleGuide: idea.styleGuide ?? undefined,
                     });
                   }}
                 >
@@ -129,12 +146,12 @@ function FromIdeaMode() {
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <LightbulbIcon className="size-8 text-muted-foreground/40" />
             <p className="mt-3 text-sm font-medium text-muted-foreground">
-              No saved ideas found
+              No ideas found
             </p>
             <p className="mt-1 text-xs text-muted-foreground/60">
               {projectId
-                ? "Save some ideas in the Content section first."
-                : "Select a project or save ideas in the Content section."}
+                ? "Generate ideas in the Content section first."
+                : "Select a project or generate ideas in the Content section."}
             </p>
           </div>
         )}
@@ -467,12 +484,9 @@ export function StepContent() {
       {/* Combined selection summary */}
       <SelectionSummary />
 
-      {/* Navigation */}
+      {/* Navigation — no Back button, this is step 1 */}
       <div className="flex gap-2">
-        <Button variant="outline" onClick={() => setStep(1)}>
-          Back
-        </Button>
-        <Button onClick={() => setStep(3)} disabled={!canContinue}>
+        <Button onClick={() => setStep(2)} disabled={!canContinue}>
           Continue
         </Button>
       </div>

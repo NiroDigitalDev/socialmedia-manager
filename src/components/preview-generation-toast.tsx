@@ -8,7 +8,8 @@ import { useTRPC } from "@/lib/trpc/client";
 /**
  * Polls the server for background preview generation progress.
  * Shows a persistent toast when generation is running.
- * Auto-recovers on page reload — the server is the source of truth.
+ * Only polls fast (2s) when active. Idle polling is 30s to check for
+ * background jobs started elsewhere (e.g., another tab).
  * Mount once in the dashboard layout.
  */
 export function PreviewGenerationToast() {
@@ -20,10 +21,9 @@ export function PreviewGenerationToast() {
 
   const { data } = useQuery({
     ...trpc.style.previewProgress.queryOptions(),
-    // Poll faster when active, slower when idle
     refetchInterval: (query) => {
       const d = query.state.data as { isRunning: boolean } | undefined;
-      return d?.isRunning ? 3000 : 15000;
+      return d?.isRunning ? 2000 : 30000;
     },
   });
 

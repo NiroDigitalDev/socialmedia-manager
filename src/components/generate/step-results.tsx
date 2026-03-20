@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useGenerateStore, type Platform } from "@/stores/use-generate-store";
+import { useGenerateStore } from "@/stores/use-generate-store";
+import type { Platform } from "@/stores/use-generate-store";
 import { useGenerationResults } from "@/hooks/use-generations";
 import { Button } from "@/components/ui/button";
 import {
@@ -67,7 +68,8 @@ interface GenerationResult {
 }
 
 export function StepResults() {
-  const { platforms, generationId, reset, setStep } = useGenerateStore();
+  const { generationId, reset, setStep } = useGenerateStore();
+  const platforms: Platform[] = ["instagram"];
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Parse generationId into postIds array
@@ -91,7 +93,7 @@ export function StepResults() {
   };
 
   const handleGoBack = () => {
-    setStep(5);
+    setStep(4);
   };
 
   // Group results by platform

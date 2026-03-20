@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useState, useRef, useCallback } from "react";
 import {
   FileTextIcon,
   PlusIcon,
@@ -10,6 +10,7 @@ import {
   FilterIcon,
   SparklesIcon,
   Loader2Icon,
+  UploadIcon,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -55,9 +56,13 @@ import {
   useToggleIdeaSave,
   useBulkDeleteIdeas,
   useGenerateIdeas,
+  useParseFile,
+  useCreateSourceFromFile,
 } from "@/hooks/use-content";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+
+const ACCEPTED_MIMES = ["application/pdf", "text/plain", "text/markdown", "text/x-markdown"];
 
 export default function ContentPage({
   params,
@@ -65,9 +70,110 @@ export default function ContentPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounterRef = useRef(0);
+  const parseFile = useParseFile();
+  const createFromFile = useCreateSourceFromFile();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const processFile = useCallback(
+    async (file: File) => {
+      const isText = file.name.match(/\.(md|txt|markdown)$/i);
+      if (!ACCEPTED_MIMES.includes(file.type) && !isText) {
+        toast.error("Unsupported file type. Use PDF, Markdown, or plain text.");
+        return;
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        toast.error("File too large. Maximum 20MB.");
+        return;
+      }
+
+      const toastId = toast.loading(`Parsing ${file.name}...`);
+
+      try {
+        let text: string;
+
+        if (file.type === "text/plain" || isText) {
+          text = await file.text();
+        } else {
+          const result = await parseFile.mutateAsync(file);
+          text = result.text;
+          if (result.pageCount) {
+            toast.loading(`Extracted ${result.pageCount} pages — creating source...`, { id: toastId });
+          }
+        }
+
+        if (!text.trim()) {
+          toast.error("File is empty", { id: toastId });
+          return;
+        }
+
+        toast.loading("AI is generating title & description...", { id: toastId });
+        await createFromFile.mutateAsync({
+          rawText: text.trim(),
+          fileName: file.name,
+          projectId: id,
+        });
+
+        toast.success(`Source created from ${file.name}`, { id: toastId });
+      } catch {
+        toast.error(`Failed to process ${file.name}`, { id: toastId });
+      }
+    },
+    [id, parseFile, createFromFile]
+  );
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current++;
+    if (dragCounterRef.current === 1) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) processFile(file);
+  };
 
   return (
-    <div className="@container/main flex flex-1 flex-col gap-6 py-4 md:py-6">
+    <div
+      className="@container/main relative flex flex-1 flex-col gap-6 py-4 md:py-6"
+      onDragEnter={handleDragEnter}
+      onDragOver={(e) => e.preventDefault()}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Full-page drag overlay */}
+      {isDragging && (
+        <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-primary/5 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3">
+            <UploadIcon className="size-10 text-primary" />
+            <p className="text-sm font-medium text-primary">Drop PDF, Markdown, or text file</p>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden file input for browse button */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.md,.txt,.markdown"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) processFile(file);
+          e.target.value = "";
+        }}
+      />
+
       <Tabs defaultValue="sources" className="px-4 lg:px-6">
         <TabsList>
           <TabsTrigger value="sources">Sources</TabsTrigger>
@@ -75,7 +181,7 @@ export default function ContentPage({
         </TabsList>
 
         <TabsContent value="sources" className="mt-4">
-          <SourcesTab projectId={id} />
+          <SourcesTab projectId={id} onUploadClick={() => fileInputRef.current?.click()} />
         </TabsContent>
 
         <TabsContent value="ideas" className="mt-4">
@@ -86,7 +192,7 @@ export default function ContentPage({
   );
 }
 
-function SourcesTab({ projectId }: { projectId: string }) {
+function SourcesTab({ projectId, onUploadClick }: { projectId: string; onUploadClick: () => void }) {
   const { data: sources, isLoading, isError } = useSources(projectId);
   const createSource = useCreateSource();
   const deleteSource = useDeleteSource();
@@ -135,12 +241,16 @@ function SourcesTab({ projectId }: { projectId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Dialog open={open} onOpenChange={setOpen}>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={onUploadClick}>
+          <UploadIcon className="mr-2 size-4" />
+          Upload File
+        </Button>
+        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setTitle(""); setRawText(""); } }}>
           <DialogTrigger asChild>
             <Button>
               <PlusIcon className="mr-2 size-4" />
-              Add Source
+              Paste Text
             </Button>
           </DialogTrigger>
           <DialogContent>
@@ -215,13 +325,17 @@ function SourcesTab({ projectId }: { projectId: string }) {
                     disabled={generateIdeas.isPending && generatingSourceId === source.id}
                     onClick={() => {
                       setGeneratingSourceId(source.id);
+                      const toastId = toast.loading(`Generating ideas from "${source.title}"...`);
                       generateIdeas.mutate(
                         { sourceId: source.id, projectId },
                         {
-                          onSuccess: () => setGeneratingSourceId(null),
+                          onSuccess: (data) => {
+                            setGeneratingSourceId(null);
+                            toast.success(`Generated ${data.count} ideas`, { id: toastId });
+                          },
                           onError: (err) => {
                             setGeneratingSourceId(null);
-                            toast.error(err.message ?? "Failed to generate ideas");
+                            toast.error(err.message ?? "Failed to generate ideas", { id: toastId });
                           },
                         }
                       );
@@ -257,12 +371,18 @@ function SourcesTab({ projectId }: { projectId: string }) {
         <EmptyState
           icon={FileTextIcon}
           title="No content sources yet"
-          description="Add content sources like blog posts, articles, or notes to generate ideas from."
+          description="Drop a PDF, Markdown, or text file anywhere on this page — or paste text manually."
           action={
-            <Button onClick={() => setOpen(true)}>
-              <PlusIcon className="mr-2 size-4" />
-              Add Source
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={onUploadClick}>
+                <UploadIcon className="mr-2 size-4" />
+                Upload File
+              </Button>
+              <Button onClick={() => setOpen(true)}>
+                <PlusIcon className="mr-2 size-4" />
+                Paste Text
+              </Button>
+            </div>
           }
         />
       )}

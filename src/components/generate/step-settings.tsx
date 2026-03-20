@@ -1,7 +1,8 @@
 "use client";
 
-import { useGenerateStore, type Platform } from "@/stores/use-generate-store";
+import { useGenerateStore } from "@/stores/use-generate-store";
 import { useGenerate } from "@/hooks/use-generations";
+import { useStyles } from "@/hooks/use-styles";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -11,7 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import {
@@ -21,44 +22,6 @@ import {
   Loader2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
-
-const platformLabels: Record<Platform, string> = {
-  instagram: "Instagram",
-  linkedin: "LinkedIn",
-  reddit: "Reddit",
-  x: "X",
-  blog: "Blog",
-  email: "Email",
-};
-
-const platformFormats: Record<Platform, { id: string; label: string }[]> = {
-  instagram: [
-    { id: "static", label: "Static" },
-    { id: "carousel", label: "Carousel" },
-  ],
-  linkedin: [
-    { id: "short", label: "Short" },
-    { id: "long", label: "Long-form" },
-  ],
-  reddit: [
-    { id: "text", label: "Text" },
-    { id: "image", label: "Image" },
-  ],
-  x: [
-    { id: "single", label: "Single" },
-    { id: "thread", label: "Thread" },
-  ],
-  blog: [
-    { id: "standard", label: "Standard" },
-    { id: "listicle", label: "Listicle" },
-  ],
-  email: [
-    { id: "newsletter", label: "Newsletter" },
-    { id: "marketing", label: "Marketing" },
-  ],
-};
-
-const imagePlatforms: Platform[] = ["instagram", "x", "reddit"];
 
 const aspectRatios = [
   { id: "3:4", label: "3:4" },
@@ -77,12 +40,10 @@ const modelKeyMap: Record<string, string> = {
 
 export function StepSettings() {
   const {
-    platforms,
     content,
     outline,
-    styleIds,
-    brandIdentityId,
-    colorOverride,
+    imageStyleId,
+    captionStyleId,
     settings,
     updateSettings,
     projectId,
@@ -92,40 +53,40 @@ export function StepSettings() {
   } = useGenerateStore();
 
   const generate = useGenerate();
+  const { data: styles } = useStyles();
+
+  // Look up selected style names for summary
+  const imageStyleName = styles?.find((s) => s.id === imageStyleId)?.name;
+  const captionStyleName = styles?.find((s) => s.id === captionStyleId)?.name;
 
   const handleGenerate = () => {
+    const format = content.format ?? "static";
+    const slideCount = outline?.slides.length ?? content.slideCount ?? 1;
+
+    // Build slide prompts from outline
+    const slidePrompts = outline?.slides.map((s) => s.imagePrompt) ?? [];
+
+    // Build style IDs array
+    const styleIds: string[] = [];
+    if (imageStyleId) styleIds.push(imageStyleId);
+
     generate.mutate(
       {
         prompt: content.prompt,
-        platforms,
+        platforms: ["instagram"],
         styleIds,
-        brandIdentityId: brandIdentityId ?? undefined,
-        colorOverride: colorOverride ?? undefined,
-        formatPerPlatform: settings.formatPerPlatform as Record<
-          string,
-          | "static"
-          | "carousel"
-          | "text"
-          | "short"
-          | "long"
-          | "thread"
-          | "single"
-          | "standard"
-          | "listicle"
-          | "newsletter"
-          | "marketing"
-          | "image"
-        >,
-        aspectRatioPerPlatform: settings.aspectRatioPerPlatform as Record<
-          string,
-          "3:4" | "1:1" | "4:5" | "9:16"
-        >,
+        colorOverride: settings.colorOverride ?? undefined,
+        formatPerPlatform: { instagram: format } as any,
+        aspectRatioPerPlatform: { instagram: settings.aspectRatio } as any,
         model: (modelKeyMap[settings.model] ?? "nano-banana-2") as
           | "nano-banana-2"
           | "nano-banana-pro",
         variations: settings.variations,
-        includeLogo: settings.includeLogo,
+        includeLogo: false,
         outline: outline ?? undefined,
+        slideCount,
+        slidePrompts: slidePrompts.length > 0 ? slidePrompts : undefined,
+        styleGuide: content.styleGuide ?? undefined,
         contentIdeaId: content.contentIdeaId ?? undefined,
         projectId: projectId ?? undefined,
         campaignId: campaignId ?? undefined,
@@ -133,7 +94,7 @@ export function StepSettings() {
       {
         onSuccess: (data) => {
           setGenerationId(data.postIds.join(","));
-          setStep(6);
+          setStep(5);
           toast.success("Generation started", {
             description:
               "Your content is being generated. Results will appear shortly.",
@@ -146,11 +107,7 @@ export function StepSettings() {
     );
   };
 
-  const estimatedOutputs = platforms.length * settings.variations;
-
-  const imagePlatformsSelected = platforms.filter((p) =>
-    imagePlatforms.includes(p)
-  );
+  const estimatedOutputs = settings.variations;
 
   return (
     <div className="space-y-6">
@@ -168,125 +125,132 @@ export function StepSettings() {
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Platforms:</span>
-            <div className="flex gap-1 flex-wrap">
-              {platforms.map((p) => (
-                <Badge key={p} variant="secondary">
-                  {platformLabels[p]}
-                </Badge>
-              ))}
-            </div>
+            <span className="text-sm text-muted-foreground">Platform:</span>
+            <Badge variant="secondary">Instagram</Badge>
           </div>
           <div>
             <span className="text-sm text-muted-foreground">Content:</span>
             <p className="text-sm mt-0.5 line-clamp-2">{content.prompt}</p>
           </div>
-          {styleIds.length > 0 && (
+          {imageStyleName && (
             <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Styles:</span>
-              <Badge variant="secondary">
-                {styleIds.length} style{styleIds.length !== 1 ? "s" : ""}{" "}
-                selected
-              </Badge>
+              <span className="text-sm text-muted-foreground">Image Style:</span>
+              <Badge variant="secondary">{imageStyleName}</Badge>
             </div>
           )}
-          {outline && outline.length > 0 && (
+          {captionStyleName && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Caption Style:</span>
+              <Badge variant="secondary">{captionStyleName}</Badge>
+            </div>
+          )}
+          {outline && (
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Outline:</span>
               <Badge variant="secondary">
-                {outline.length} sections across {platforms.length} platforms
+                {outline.slides.length} slide{outline.slides.length !== 1 ? "s" : ""}
               </Badge>
+            </div>
+          )}
+          {content.format && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Format:</span>
+              <Badge variant="outline">{content.format}</Badge>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Per-platform format */}
+      {/* Aspect Ratio */}
       <Card>
         <CardHeader>
-          <CardTitle>Format</CardTitle>
+          <CardTitle>Aspect Ratio</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {platforms.map((platform) => {
-            const formats = platformFormats[platform];
-            const current =
-              settings.formatPerPlatform[platform] ?? formats[0].id;
-            return (
-              <div key={platform} className="space-y-2">
-                <Label className="text-xs text-muted-foreground">
-                  {platformLabels[platform]}
-                </Label>
-                <ToggleGroup
-                  type="single"
-                  value={current}
-                  onValueChange={(val) => {
-                    if (val) {
-                      updateSettings({
-                        formatPerPlatform: {
-                          ...settings.formatPerPlatform,
-                          [platform]: val,
-                        },
-                      });
-                    }
-                  }}
-                  className="justify-start"
-                >
-                  {formats.map((f) => (
-                    <ToggleGroupItem key={f.id} value={f.id} size="sm">
-                      {f.label}
-                    </ToggleGroupItem>
-                  ))}
-                </ToggleGroup>
-              </div>
-            );
-          })}
+        <CardContent>
+          <ToggleGroup
+            type="single"
+            value={settings.aspectRatio}
+            onValueChange={(val) => {
+              if (val) {
+                updateSettings({
+                  aspectRatio: val as "3:4" | "1:1" | "4:5" | "9:16",
+                });
+              }
+            }}
+            className="justify-start"
+          >
+            {aspectRatios.map((ar) => (
+              <ToggleGroupItem key={ar.id} value={ar.id} size="sm">
+                {ar.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
         </CardContent>
       </Card>
 
-      {/* Aspect Ratio (only for image platforms) */}
-      {imagePlatformsSelected.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Aspect Ratio</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {imagePlatformsSelected.map((platform) => {
-              const current =
-                settings.aspectRatioPerPlatform[platform] ?? "1:1";
-              return (
-                <div key={platform} className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">
-                    {platformLabels[platform]}
-                  </Label>
-                  <ToggleGroup
-                    type="single"
-                    value={current}
-                    onValueChange={(val) => {
-                      if (val) {
-                        updateSettings({
-                          aspectRatioPerPlatform: {
-                            ...settings.aspectRatioPerPlatform,
-                            [platform]: val,
-                          },
-                        });
-                      }
-                    }}
-                    className="justify-start"
-                  >
-                    {aspectRatios.map((ar) => (
-                      <ToggleGroupItem key={ar.id} value={ar.id} size="sm">
-                        {ar.label}
-                      </ToggleGroupItem>
-                    ))}
-                  </ToggleGroup>
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-      )}
+      {/* Custom Color Override */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Custom Colors</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Optionally override the accent and background colors for this generation.
+          </p>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="accent-color" className="text-xs text-muted-foreground">
+                Accent
+              </Label>
+              <Input
+                id="accent-color"
+                type="color"
+                value={settings.colorOverride?.accent ?? "#6366f1"}
+                onChange={(e) =>
+                  updateSettings({
+                    colorOverride: {
+                      accent: e.target.value,
+                      bg: settings.colorOverride?.bg ?? "#ffffff",
+                    },
+                  })
+                }
+                className="h-8 w-12 cursor-pointer p-0.5"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="bg-color" className="text-xs text-muted-foreground">
+                Background
+              </Label>
+              <Input
+                id="bg-color"
+                type="color"
+                value={settings.colorOverride?.bg ?? "#ffffff"}
+                onChange={(e) =>
+                  updateSettings({
+                    colorOverride: {
+                      accent: settings.colorOverride?.accent ?? "#6366f1",
+                      bg: e.target.value,
+                    },
+                  })
+                }
+                className="h-8 w-12 cursor-pointer p-0.5"
+              />
+            </div>
+            {settings.colorOverride && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs"
+                onClick={() => updateSettings({ colorOverride: null })}
+              >
+                Reset
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
-      {/* Model + Variations + Logo */}
+      {/* Model + Variations */}
       <Card>
         <CardHeader>
           <CardTitle>Generation</CardTitle>
@@ -319,7 +283,7 @@ export function StepSettings() {
           {/* Variations */}
           <div className="space-y-2">
             <Label className="text-xs text-muted-foreground">
-              Variations per platform
+              Variations
             </Label>
             <ToggleGroup
               type="single"
@@ -336,20 +300,6 @@ export function StepSettings() {
               ))}
             </ToggleGroup>
           </div>
-
-          {/* Include Logo */}
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="include-logo"
-              checked={settings.includeLogo}
-              onCheckedChange={(checked) =>
-                updateSettings({ includeLogo: checked === true })
-              }
-            />
-            <Label htmlFor="include-logo" className="text-sm">
-              Include logo in generated images
-            </Label>
-          </div>
         </CardContent>
       </Card>
 
@@ -357,17 +307,16 @@ export function StepSettings() {
       <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-3">
         <div className="text-sm">
           <span className="text-muted-foreground">Estimated outputs:</span>{" "}
-          <span className="font-medium">{estimatedOutputs} items</span>
+          <span className="font-medium">{estimatedOutputs} item{estimatedOutputs !== 1 ? "s" : ""}</span>
           <span className="text-muted-foreground">
             {" "}
-            ({platforms.length} platforms &times; {settings.variations}{" "}
-            variations)
+            ({settings.variations} variation{settings.variations !== 1 ? "s" : ""})
           </span>
         </div>
       </div>
 
       <div className="flex gap-2">
-        <Button variant="outline" onClick={() => setStep(4)}>
+        <Button variant="outline" onClick={() => setStep(3)}>
           Back
         </Button>
         <Button

@@ -7,44 +7,49 @@ export interface ContentInput {
   contentIdeaId?: string;
   contentSourceId?: string;
   assetIds?: string[];
+  // From the idea
+  format?: "static" | "carousel";
+  slideCount?: number;
+  slidePrompts?: string[];
+  styleGuide?: string;
 }
 
-export interface OutlineSection {
+export interface OutlineSlide {
   id: string;
-  platform: Platform;
-  label: string;
-  content: string;
-  order: number;
+  slideNumber: number;
+  imagePrompt: string;
+  layoutNotes: string;
+}
+
+export interface GenerateOutline {
+  slides: OutlineSlide[];
+  caption: string;
 }
 
 export interface GenerateState {
   step: number;
   maxCompletedStep: number;
-  platforms: Platform[];
   content: ContentInput;
-  outline: OutlineSection[] | null;
-  styleIds: string[];
-  brandIdentityId: string | null;
-  colorOverride: { accent: string; bg: string } | null;
+  imageStyleId: string | null;
+  captionStyleId: string | null;
+  outline: GenerateOutline | null;
   settings: {
-    formatPerPlatform: Record<string, string>;
-    aspectRatioPerPlatform: Record<string, string>;
     model: "flash" | "pro";
     variations: number;
-    includeLogo: boolean;
+    aspectRatio: "3:4" | "1:1" | "4:5" | "9:16";
+    colorOverride: { accent: string; bg: string } | null;
   };
   generationId: string | null;
   projectId: string | null;
   campaignId: string | null;
 
   setStep: (step: number) => void;
-  setPlatforms: (platforms: Platform[]) => void;
   setContent: (content: Partial<ContentInput>) => void;
-  setOutline: (outline: OutlineSection[]) => void;
-  updateOutlineSection: (id: string, content: string) => void;
-  setStyleIds: (ids: string[]) => void;
-  setBrandIdentityId: (id: string | null) => void;
-  setColorOverride: (override: { accent: string; bg: string } | null) => void;
+  setImageStyleId: (id: string | null) => void;
+  setCaptionStyleId: (id: string | null) => void;
+  setOutline: (outline: GenerateOutline | null) => void;
+  updateOutlineSlide: (id: string, data: Partial<OutlineSlide>) => void;
+  updateOutlineCaption: (caption: string) => void;
   updateSettings: (settings: Partial<GenerateState["settings"]>) => void;
   setGenerationId: (id: string | null) => void;
   setContext: (projectId: string | null, campaignId: string | null) => void;
@@ -52,22 +57,19 @@ export interface GenerateState {
 }
 
 const initialSettings = {
-  formatPerPlatform: {},
-  aspectRatioPerPlatform: {},
   model: "flash" as const,
   variations: 1,
-  includeLogo: false,
+  aspectRatio: "1:1" as const,
+  colorOverride: null as { accent: string; bg: string } | null,
 };
 
 export const useGenerateStore = create<GenerateState>((set) => ({
   step: 1,
   maxCompletedStep: 0,
-  platforms: [],
   content: { prompt: "" },
+  imageStyleId: null,
+  captionStyleId: null,
   outline: null,
-  styleIds: [],
-  brandIdentityId: null,
-  colorOverride: null,
   settings: { ...initialSettings },
   generationId: null,
   projectId: null,
@@ -78,17 +80,26 @@ export const useGenerateStore = create<GenerateState>((set) => ({
       step,
       maxCompletedStep: Math.max(state.maxCompletedStep, step - 1),
     })),
-  setPlatforms: (platforms) => set({ platforms }),
   setContent: (content) =>
     set((state) => ({ content: { ...state.content, ...content } })),
+  setImageStyleId: (imageStyleId) => set({ imageStyleId }),
+  setCaptionStyleId: (captionStyleId) => set({ captionStyleId }),
   setOutline: (outline) => set({ outline }),
-  updateOutlineSection: (id, content) =>
+  updateOutlineSlide: (id, data) =>
     set((state) => ({
-      outline: state.outline?.map((s) => (s.id === id ? { ...s, content } : s)) ?? null,
+      outline: state.outline
+        ? {
+            ...state.outline,
+            slides: state.outline.slides.map((s) =>
+              s.id === id ? { ...s, ...data } : s
+            ),
+          }
+        : null,
     })),
-  setStyleIds: (styleIds) => set({ styleIds }),
-  setBrandIdentityId: (brandIdentityId) => set({ brandIdentityId }),
-  setColorOverride: (colorOverride) => set({ colorOverride }),
+  updateOutlineCaption: (caption) =>
+    set((state) => ({
+      outline: state.outline ? { ...state.outline, caption } : null,
+    })),
   updateSettings: (settings) =>
     set((state) => ({ settings: { ...state.settings, ...settings } })),
   setGenerationId: (generationId) => set({ generationId }),
@@ -97,12 +108,10 @@ export const useGenerateStore = create<GenerateState>((set) => ({
     set({
       step: 1,
       maxCompletedStep: 0,
-      platforms: [],
       content: { prompt: "" },
+      imageStyleId: null,
+      captionStyleId: null,
       outline: null,
-      styleIds: [],
-      brandIdentityId: null,
-      colorOverride: null,
       settings: { ...initialSettings },
       generationId: null,
       projectId: null,

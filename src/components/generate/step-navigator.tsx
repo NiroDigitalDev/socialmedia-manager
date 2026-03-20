@@ -5,12 +5,11 @@ import { cn } from "@/lib/utils";
 import { CheckIcon } from "lucide-react";
 
 const steps = [
-  { number: 1, title: "Platforms", description: "What are you creating?" },
-  { number: 2, title: "Content", description: "What's it about?" },
+  { number: 1, title: "Content", description: "What's it about?" },
+  { number: 2, title: "Style", description: "How should it look?" },
   { number: 3, title: "Outline", description: "Review the plan" },
-  { number: 4, title: "Style & Brand", description: "How should it look?" },
-  { number: 5, title: "Settings", description: "Final configuration" },
-  { number: 6, title: "Results", description: "Your content" },
+  { number: 4, title: "Settings", description: "Final configuration" },
+  { number: 5, title: "Results", description: "Your content" },
 ];
 
 export function StepNavigator() {
@@ -38,12 +37,9 @@ export function StepNavigator() {
             <div
               className={cn(
                 "flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium mt-0.5",
-                isCompleted && !isActive &&
-                  "bg-primary text-primary-foreground",
+                isCompleted && !isActive && "bg-primary text-primary-foreground",
                 isActive && "bg-primary text-primary-foreground",
-                !isCompleted &&
-                  !isActive &&
-                  "border border-muted-foreground/30 text-muted-foreground"
+                !isCompleted && !isActive && "border border-muted-foreground/30 text-muted-foreground"
               )}
             >
               {isCompleted && !isActive ? (

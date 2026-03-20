@@ -3,8 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import {
   useGenerateStore,
-  type OutlineSection,
-  type Platform,
+  type GenerateOutline,
 } from "@/stores/use-generate-store";
 import { useGenerateOutline } from "@/hooks/use-generations";
 import { Button } from "@/components/ui/button";
@@ -28,177 +27,114 @@ import {
 import { toast } from "sonner";
 
 /**
- * Transform raw AI outline response into OutlineSection[].
+ * Transform raw AI outline response into GenerateOutline.
  *
- * The tRPC mutation returns an array of platform objects like:
- * [{ platform, headline, sections: [{ title, bullet_points, cta }], tone, format_recommendation }]
+ * The tRPC mutation still expects `platforms` in its input, so we pass
+ * `["instagram"]`. The response shape we request from the AI is:
+ * { slides: [{ imagePrompt, layoutNotes }], caption: "..." }
  *
- * We flatten these into OutlineSection[] for the Zustand store.
+ * We handle fallback for the old platform-grouped shape too.
  */
-function transformOutlineResponse(data: any[]): OutlineSection[] {
-  const sections: OutlineSection[] = [];
-  let order = 0;
+function transformOutlineResponse(data: unknown): GenerateOutline | null {
+  if (!data || typeof data !== "object") return null;
 
-  for (const platformObj of data) {
-    const platform = platformObj.platform as Platform;
-
-    // Add headline as the first section
-    if (platformObj.headline) {
-      sections.push({
-        id: `${platform}-headline-${order}`,
-        platform,
-        label: "Headline",
-        content: platformObj.headline,
-        order: order++,
-      });
-    }
-
-    // Add each sub-section
-    if (Array.isArray(platformObj.sections)) {
-      for (const sec of platformObj.sections) {
-        const bullets = Array.isArray(sec.bullet_points)
-          ? sec.bullet_points.join("\n")
-          : "";
-        const content = [bullets, sec.cta ? `CTA: ${sec.cta}` : ""]
-          .filter(Boolean)
-          .join("\n");
-
-        sections.push({
-          id: `${platform}-${order}`,
-          platform,
-          label: sec.title ?? "Section",
-          content,
-          order: order++,
-        });
-      }
-    }
-
-    // Add tone/format as a metadata section
-    const meta = [
-      platformObj.tone ? `Tone: ${platformObj.tone}` : "",
-      platformObj.format_recommendation
-        ? `Format: ${platformObj.format_recommendation}`
-        : "",
-    ]
-      .filter(Boolean)
-      .join(" | ");
-
-    if (meta) {
-      sections.push({
-        id: `${platform}-meta-${order}`,
-        platform,
-        label: "Style Notes",
-        content: meta,
-        order: order++,
-      });
-    }
+  // New shape: { slides: [...], caption: "..." }
+  if ("slides" in (data as any) && Array.isArray((data as any).slides)) {
+    const raw = data as any;
+    return {
+      slides: raw.slides.map((s: any, i: number) => ({
+        id: `slide-${i + 1}`,
+        slideNumber: i + 1,
+        imagePrompt: s.imagePrompt ?? s.image_prompt ?? s.content ?? "",
+        layoutNotes: s.layoutNotes ?? s.layout_notes ?? "",
+      })),
+      caption: raw.caption ?? "",
+    };
   }
 
-  return sections;
-}
+  // Old shape: array of platform objects — extract Instagram sections
+  if (Array.isArray(data)) {
+    const igObj = data.find((d: any) => d?.platform === "instagram") ?? data[0];
+    if (!igObj) return null;
 
-const platformLabels: Record<Platform, string> = {
-  instagram: "Instagram",
-  linkedin: "LinkedIn",
-  reddit: "Reddit",
-  x: "X",
-  blog: "Blog",
-  email: "Email",
-};
+    const slides = (igObj.sections ?? []).map((sec: any, i: number) => ({
+      id: `slide-${i + 1}`,
+      slideNumber: i + 1,
+      imagePrompt:
+        sec.imagePrompt ??
+        sec.image_prompt ??
+        (Array.isArray(sec.bullet_points) ? sec.bullet_points.join(". ") : sec.title ?? ""),
+      layoutNotes: sec.layoutNotes ?? sec.layout_notes ?? sec.cta ?? "",
+    }));
+
+    return {
+      slides,
+      caption: igObj.headline ?? "",
+    };
+  }
+
+  return null;
+}
 
 export function StepOutline() {
   const {
-    platforms,
     content,
+    imageStyleId,
+    captionStyleId,
     outline,
     setOutline,
-    updateOutlineSection,
+    updateOutlineSlide,
+    updateOutlineCaption,
     setStep,
   } = useGenerateStore();
 
   const generateOutline = useGenerateOutline();
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [regeneratingPlatform, setRegeneratingPlatform] =
-    useState<Platform | null>(null);
+  const [editingCaption, setEditingCaption] = useState(false);
   const hasTriggeredRef = useRef(false);
 
   // Auto-generate outline on mount when outline is null and we have data
   useEffect(() => {
     if (
       !outline &&
-      platforms.length > 0 &&
       content.prompt.trim() &&
       !hasTriggeredRef.current &&
       !generateOutline.isPending
     ) {
       hasTriggeredRef.current = true;
-      generateOutline.mutate(
-        { prompt: content.prompt, platforms },
-        {
-          onSuccess: (data) => {
-            setOutline(transformOutlineResponse(data));
-          },
-          onError: (err) => {
-            toast.error(err.message ?? "Failed to generate outline");
-          },
-        }
-      );
+      const toastId = toast.loading("Generating content outline...");
+
+      generateOutline
+        .mutateAsync({ prompt: content.prompt, platforms: ["instagram"] })
+        .then((data) => {
+          const parsed = transformOutlineResponse(data);
+          setOutline(parsed);
+          toast.success("Outline ready", { id: toastId });
+        })
+        .catch((err) => {
+          toast.error(err?.message ?? "Failed to generate outline", {
+            id: toastId,
+          });
+        });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Group sections by platform
-  const sectionsByPlatform = (outline ?? []).reduce(
-    (acc, section) => {
-      if (!acc[section.platform]) acc[section.platform] = [];
-      acc[section.platform].push(section);
-      return acc;
-    },
-    {} as Record<Platform, OutlineSection[]>
-  );
-
-  // Regenerate outline for a single platform
-  const handleRegeneratePlatform = (platform: Platform) => {
-    setRegeneratingPlatform(platform);
-    generateOutline.mutate(
-      { prompt: content.prompt, platforms: [platform] },
-      {
-        onSuccess: (data) => {
-          // Merge: replace sections for this platform, keep others
-          const otherSections = (outline ?? []).filter(
-            (s) => s.platform !== platform
-          );
-          const newSections = [...otherSections, ...transformOutlineResponse(data)].sort(
-            (a, b) => a.order - b.order
-          );
-          setOutline(newSections);
-          setRegeneratingPlatform(null);
-          toast.success(
-            `${platformLabels[platform]} outline regenerated`
-          );
-        },
-        onError: (err) => {
-          setRegeneratingPlatform(null);
-          toast.error(
-            err.message ??
-              `Failed to regenerate ${platformLabels[platform]} outline`
-          );
-        },
-      }
-    );
-  };
-
-  // Regenerate all platforms
+  // Regenerate entire outline
   const handleRegenerateAll = () => {
+    const toastId = toast.loading("Regenerating outline...");
     generateOutline.mutate(
-      { prompt: content.prompt, platforms },
+      { prompt: content.prompt, platforms: ["instagram"] },
       {
         onSuccess: (data) => {
-          setOutline(transformOutlineResponse(data));
-          toast.success("All outlines regenerated");
+          const parsed = transformOutlineResponse(data);
+          setOutline(parsed);
+          toast.success("Outline regenerated", { id: toastId });
         },
         onError: (err) => {
-          toast.error(err.message ?? "Failed to regenerate outlines");
+          toast.error(err.message ?? "Failed to regenerate outline", {
+            id: toastId,
+          });
         },
       }
     );
@@ -206,14 +142,19 @@ export function StepOutline() {
 
   // Retry after initial failure
   const handleRetry = () => {
+    const toastId = toast.loading("Generating content outline...");
     generateOutline.mutate(
-      { prompt: content.prompt, platforms },
+      { prompt: content.prompt, platforms: ["instagram"] },
       {
         onSuccess: (data) => {
-          setOutline(transformOutlineResponse(data));
+          const parsed = transformOutlineResponse(data);
+          setOutline(parsed);
+          toast.success("Outline ready", { id: toastId });
         },
         onError: (err) => {
-          toast.error(err.message ?? "Failed to generate outline");
+          toast.error(err.message ?? "Failed to generate outline", {
+            id: toastId,
+          });
         },
       }
     );
@@ -230,32 +171,29 @@ export function StepOutline() {
           </p>
         </div>
 
-        <div className="space-y-6">
-          {platforms.map((platform) => (
-            <div key={platform} className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Skeleton className="h-5 w-24" />
-                <Skeleton className="h-5 w-16 rounded-full" />
-              </div>
-              <div className="space-y-2">
-                {Array.from({ length: platform === "blog" ? 4 : 3 }).map(
-                  (_, i) => (
-                    <Card key={i} size="sm">
-                      <CardHeader className="pb-0">
-                        <Skeleton className="h-3 w-20" />
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-2">
-                          <Skeleton className="h-4 w-full" />
-                          <Skeleton className="h-4 w-3/4" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )
-                )}
-              </div>
-            </div>
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i} size="sm">
+              <CardHeader className="pb-0">
+                <Skeleton className="h-3 w-20" />
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-3/4" />
+                </div>
+              </CardContent>
+            </Card>
           ))}
+          {/* Caption skeleton */}
+          <Card size="sm">
+            <CardHeader className="pb-0">
+              <Skeleton className="h-3 w-16" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-16 w-full" />
+            </CardContent>
+          </Card>
         </div>
       </div>
     );
@@ -315,8 +253,7 @@ export function StepOutline() {
         <div>
           <h2 className="text-xl font-semibold">Review the plan</h2>
           <p className="text-sm text-muted-foreground">
-            Edit the outline for each platform. Click any section to modify
-            it.
+            Edit the slide prompts and caption. Click any section to modify it.
           </p>
         </div>
         <Button
@@ -326,134 +263,150 @@ export function StepOutline() {
           disabled={generateOutline.isPending}
           className="gap-1.5"
         >
-          {generateOutline.isPending && !regeneratingPlatform ? (
+          {generateOutline.isPending ? (
             <Loader2Icon className="size-3.5 animate-spin" />
           ) : (
             <RefreshCwIcon className="size-3.5" />
           )}
-          Regenerate All
+          Regenerate
         </Button>
       </div>
 
-      <div className="space-y-6">
-        {platforms.map((platform) => {
-          const isRegenerating = regeneratingPlatform === platform;
-          const sections = sectionsByPlatform[platform] ?? [];
+      {/* Slides */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <h3 className="text-base font-medium">Slides</h3>
+          <Badge variant="secondary">
+            {outline?.slides.length ?? 0} slide
+            {(outline?.slides.length ?? 0) !== 1 ? "s" : ""}
+          </Badge>
+        </div>
 
-          return (
-            <div key={platform} className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-base font-medium">
-                    {platformLabels[platform]}
-                  </h3>
-                  <Badge variant="secondary">
-                    {sections.length} sections
-                  </Badge>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleRegeneratePlatform(platform)}
-                  disabled={
-                    generateOutline.isPending || isRegenerating
-                  }
-                  className="gap-1.5"
-                >
-                  {isRegenerating ? (
-                    <Loader2Icon className="size-3.5 animate-spin" />
+        <div className="space-y-2">
+          {(outline?.slides ?? []).map((slide) => {
+            const isEditing = editingId === slide.id;
+            return (
+              <Card key={slide.id} size="sm">
+                <CardHeader className="pb-0">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      Slide {slide.slideNumber}
+                    </CardTitle>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="size-6 p-0"
+                      onClick={() =>
+                        setEditingId(isEditing ? null : slide.id)
+                      }
+                    >
+                      {isEditing ? (
+                        <CheckIcon className="size-3" />
+                      ) : (
+                        <PencilIcon className="size-3" />
+                      )}
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {isEditing ? (
+                    <div className="space-y-2">
+                      <Textarea
+                        value={slide.imagePrompt}
+                        onChange={(e) =>
+                          updateOutlineSlide(slide.id, {
+                            imagePrompt: e.target.value,
+                          })
+                        }
+                        rows={3}
+                        className="resize-none text-sm"
+                        autoFocus
+                        placeholder="Image prompt for this slide..."
+                      />
+                      <Textarea
+                        value={slide.layoutNotes}
+                        onChange={(e) =>
+                          updateOutlineSlide(slide.id, {
+                            layoutNotes: e.target.value,
+                          })
+                        }
+                        rows={2}
+                        className="resize-none text-xs"
+                        placeholder="Layout notes (optional)..."
+                      />
+                    </div>
                   ) : (
-                    <RefreshCwIcon className="size-3.5" />
+                    <div
+                      className={cn(
+                        "cursor-pointer rounded px-1 -mx-1 py-0.5 hover:bg-muted/50 transition-colors"
+                      )}
+                      onClick={() => setEditingId(slide.id)}
+                    >
+                      <p
+                        className={cn(
+                          "text-sm",
+                          !slide.imagePrompt && "text-muted-foreground italic"
+                        )}
+                      >
+                        {slide.imagePrompt || "Click to add image prompt..."}
+                      </p>
+                      {slide.layoutNotes && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {slide.layoutNotes}
+                        </p>
+                      )}
+                    </div>
                   )}
-                  Regenerate
-                </Button>
-              </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
 
-              {isRegenerating ? (
-                // Skeleton while this platform regenerates
-                <div className="space-y-2">
-                  {Array.from({ length: 3 }).map((_, i) => (
-                    <Card key={i} size="sm">
-                      <CardHeader className="pb-0">
-                        <Skeleton className="h-3 w-20" />
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-2">
-                          <Skeleton className="h-4 w-full" />
-                          <Skeleton className="h-4 w-2/3" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {sections.map((section) => {
-                    const isEditing = editingId === section.id;
-                    return (
-                      <Card key={section.id} size="sm">
-                        <CardHeader className="pb-0">
-                          <div className="flex items-center justify-between">
-                            <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                              {section.label}
-                            </CardTitle>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="size-6 p-0"
-                              onClick={() =>
-                                setEditingId(
-                                  isEditing ? null : section.id
-                                )
-                              }
-                            >
-                              {isEditing ? (
-                                <CheckIcon className="size-3" />
-                              ) : (
-                                <PencilIcon className="size-3" />
-                              )}
-                            </Button>
-                          </div>
-                        </CardHeader>
-                        <CardContent>
-                          {isEditing ? (
-                            <Textarea
-                              value={section.content}
-                              onChange={(e) =>
-                                updateOutlineSection(
-                                  section.id,
-                                  e.target.value
-                                )
-                              }
-                              rows={3}
-                              className="resize-none text-sm"
-                              autoFocus
-                              onBlur={() => setEditingId(null)}
-                            />
-                          ) : (
-                            <p
-                              className={cn(
-                                "text-sm cursor-pointer rounded px-1 -mx-1 py-0.5 hover:bg-muted/50 transition-colors",
-                                !section.content &&
-                                  "text-muted-foreground italic"
-                              )}
-                              onClick={() =>
-                                setEditingId(section.id)
-                              }
-                            >
-                              {section.content ||
-                                "Click to add content..."}
-                            </p>
-                          )}
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
+      {/* Caption */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-medium">Caption</h3>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="size-6 p-0"
+            onClick={() => setEditingCaption(!editingCaption)}
+          >
+            {editingCaption ? (
+              <CheckIcon className="size-3" />
+            ) : (
+              <PencilIcon className="size-3" />
+            )}
+          </Button>
+        </div>
+
+        <Card size="sm">
+          <CardContent>
+            {editingCaption ? (
+              <Textarea
+                value={outline?.caption ?? ""}
+                onChange={(e) => updateOutlineCaption(e.target.value)}
+                rows={4}
+                className="resize-none text-sm"
+                autoFocus
+                placeholder="Instagram caption text..."
+                onBlur={() => setEditingCaption(false)}
+              />
+            ) : (
+              <p
+                className={cn(
+                  "text-sm cursor-pointer rounded px-1 -mx-1 py-0.5 hover:bg-muted/50 transition-colors whitespace-pre-wrap",
+                  !outline?.caption && "text-muted-foreground italic"
+                )}
+                onClick={() => setEditingCaption(true)}
+              >
+                {outline?.caption || "Click to add caption..."}
+              </p>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       <div className="flex gap-2">
@@ -462,7 +415,7 @@ export function StepOutline() {
         </Button>
         <Button
           onClick={() => setStep(4)}
-          disabled={!outline || outline.length === 0}
+          disabled={!outline || outline.slides.length === 0}
         >
           Continue
         </Button>
