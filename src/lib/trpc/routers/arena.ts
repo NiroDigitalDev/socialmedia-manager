@@ -6,11 +6,14 @@ import {
   generateOutlines as aiGenerateOutlines,
   generateImageFromPrompt,
   analyzeFeedback,
+  refineStylePrompt,
+  generateArenaCaption,
   PROMPTS,
   type ModelKey,
   type AspectRatio,
   type StyleLearnings,
 } from "@/lib/ai";
+import { fetchFromR2 } from "@/lib/r2";
 import pLimit from "p-limit";
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -894,5 +897,289 @@ export const arenaRouter = router({
         styles: styleResults,
         learnings: (round.learnings ?? {}) as Record<string, StyleLearnings>,
       };
+    }),
+
+  // ── Export, Captions, Style Saving ────────────────────────────
+
+  exportWinners: orgProtectedProcedure
+    .input(
+      z.object({
+        arenaId: z.string(),
+        entryIds: z.array(z.string()).min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const arena = await ctx.prisma.labArena.findFirst({
+        where: { id: input.arenaId, orgId: ctx.orgId },
+      });
+
+      if (!arena) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Arena not found" });
+      }
+
+      const entries = await ctx.prisma.labArenaEntry.findMany({
+        where: {
+          id: { in: input.entryIds },
+          arenaId: input.arenaId,
+        },
+      });
+
+      const exported: string[] = [];
+
+      for (const entry of entries) {
+        // Skip if already exported (via super rating)
+        if (entry.exportedPostId) continue;
+
+        // Only export up or super rated entries
+        if (entry.rating !== "up" && entry.rating !== "super") continue;
+
+        // Determine description: use selected caption if available, else contentPrompt
+        let description: string | null = null;
+        if (entry.captions && Array.isArray(entry.captions)) {
+          const selected = (entry.captions as Array<{ text: string; selected: boolean }>).find(
+            (c) => c.selected
+          );
+          if (selected) {
+            description = selected.text;
+          }
+        }
+
+        const generatedPost = await ctx.prisma.generatedPost.create({
+          data: {
+            prompt: entry.contentPrompt ?? "",
+            description: description ?? undefined,
+            format: "static",
+            aspectRatio: arena.aspectRatio,
+            model: "arena-export",
+            status: "completed",
+            platform: "instagram",
+            orgId: ctx.orgId,
+            projectId: arena.projectId ?? null,
+          },
+        });
+
+        await ctx.prisma.generatedImage.create({
+          data: {
+            postId: generatedPost.id,
+            slideNumber: 1,
+            r2Key: entry.r2Key,
+            mimeType: entry.mimeType ?? "image/png",
+          },
+        });
+
+        await ctx.prisma.labArenaEntry.update({
+          where: { id: entry.id },
+          data: { exportedPostId: generatedPost.id },
+        });
+
+        exported.push(entry.id);
+      }
+
+      return { exported };
+    }),
+
+  generateCaptions: orgProtectedProcedure
+    .input(
+      z.object({
+        entryIds: z.array(z.string()).min(1),
+        captionStyleId: z.string(),
+        countPerImage: z.number().min(1).max(10).default(3),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Fetch all entries and verify ownership
+      const entries = await ctx.prisma.labArenaEntry.findMany({
+        where: {
+          id: { in: input.entryIds },
+          orgId: ctx.orgId,
+          status: "completed",
+          r2Key: { not: null },
+        },
+        include: { arena: true },
+      });
+
+      if (entries.length === 0) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No valid entries found",
+        });
+      }
+
+      const limit = pLimit(5);
+      const results: Record<string, Array<{ text: string; selected: boolean }>> = {};
+
+      const jobs = entries.map((entry) =>
+        limit(async () => {
+          // Build outline context from entry data
+          const outlineContext = entry.contentPrompt ?? entry.arena.sourceText;
+
+          // Generate countPerImage captions in parallel
+          const captionJobs = Array.from({ length: input.countPerImage }, () =>
+            generateArenaCaption(
+              outlineContext,
+              entry.r2Key!,
+              ctx.orgId,
+              input.captionStyleId,
+              { prisma: ctx.prisma, fetchFromR2 },
+            )
+          );
+
+          const captionResults = await Promise.allSettled(captionJobs);
+
+          const captions = captionResults
+            .filter(
+              (r): r is PromiseFulfilledResult<{ caption: string; hashtags: string[] }> =>
+                r.status === "fulfilled"
+            )
+            .map((r) => ({
+              text: r.value.hashtags.length > 0
+                ? `${r.value.caption}\n\n${r.value.hashtags.map((h) => `#${h}`).join(" ")}`
+                : r.value.caption,
+              selected: false,
+            }));
+
+          // Update entry with captions
+          await ctx.prisma.labArenaEntry.update({
+            where: { id: entry.id },
+            data: {
+              captions: captions as object,
+              captionStyleId: input.captionStyleId,
+            },
+          });
+
+          results[entry.id] = captions;
+        })
+      );
+
+      await Promise.allSettled(jobs);
+
+      return { results };
+    }),
+
+  selectCaption: orgProtectedProcedure
+    .input(
+      z.object({
+        entryId: z.string(),
+        captionIndex: z.number().min(0),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const entry = await ctx.prisma.labArenaEntry.findFirst({
+        where: { id: input.entryId, orgId: ctx.orgId },
+      });
+
+      if (!entry) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Entry not found" });
+      }
+
+      if (!entry.captions || !Array.isArray(entry.captions)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Entry has no captions",
+        });
+      }
+
+      const captions = entry.captions as Array<{ text: string; selected: boolean }>;
+
+      if (input.captionIndex >= captions.length) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Caption index out of range",
+        });
+      }
+
+      const updated = captions.map((c, i) => ({
+        ...c,
+        selected: i === input.captionIndex,
+      }));
+
+      await ctx.prisma.labArenaEntry.update({
+        where: { id: input.entryId },
+        data: { captions: updated as object },
+      });
+
+      return { success: true };
+    }),
+
+  saveRefinedStyle: orgProtectedProcedure
+    .input(
+      z.object({
+        arenaId: z.string(),
+        styleId: z.string(),
+        name: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const arena = await ctx.prisma.labArena.findFirst({
+        where: { id: input.arenaId, orgId: ctx.orgId },
+      });
+
+      if (!arena) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Arena not found" });
+      }
+
+      // Fetch the original style
+      const originalStyle = await ctx.prisma.style.findUnique({
+        where: { id: input.styleId },
+      });
+
+      if (!originalStyle) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Style not found",
+        });
+      }
+
+      // Collect learnings for this style across all rounds
+      const rounds = await ctx.prisma.labArenaRound.findMany({
+        where: { arenaId: input.arenaId },
+        select: { learnings: true },
+        orderBy: { roundNumber: "asc" },
+      });
+
+      // Merge learnings from all rounds for this style
+      const mergedLearnings: StyleLearnings = {
+        keepContent: [],
+        keepStyle: [],
+        avoidContent: [],
+        avoidStyle: [],
+        summary: "",
+      };
+
+      const summaries: string[] = [];
+
+      for (const round of rounds) {
+        if (!round.learnings) continue;
+        const roundLearnings = round.learnings as Record<string, StyleLearnings>;
+        const styleLearnings = roundLearnings[input.styleId];
+        if (!styleLearnings) continue;
+
+        mergedLearnings.keepContent.push(...(styleLearnings.keepContent ?? []));
+        mergedLearnings.keepStyle.push(...(styleLearnings.keepStyle ?? []));
+        mergedLearnings.avoidContent.push(...(styleLearnings.avoidContent ?? []));
+        mergedLearnings.avoidStyle.push(...(styleLearnings.avoidStyle ?? []));
+        if (styleLearnings.summary) summaries.push(styleLearnings.summary);
+      }
+
+      mergedLearnings.summary = summaries.join(" ");
+
+      // Refine the style prompt using accumulated learnings
+      const refinedPrompt = await refineStylePrompt(
+        originalStyle.promptText,
+        mergedLearnings,
+      );
+
+      // Create new style
+      const newStyle = await ctx.prisma.style.create({
+        data: {
+          name: input.name ?? `${originalStyle.name} (Arena-refined)`,
+          promptText: refinedPrompt,
+          kind: "image",
+          parentStyleIds: [input.styleId],
+          orgId: ctx.orgId,
+        },
+      });
+
+      return newStyle;
     }),
 });

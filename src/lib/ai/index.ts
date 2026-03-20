@@ -15,6 +15,9 @@ export type { ImageResult } from "./generate-images";
 export { generateCaption } from "./generate-captions";
 export type { CaptionResult, CaptionDeps } from "./generate-captions";
 
+export { generateArenaCaption } from "./generate-arena-captions";
+export type { ArenaCaptionResult, ArenaCaptionDeps } from "./generate-arena-captions";
+
 export { analyzeFeedback } from "./analyze-feedback";
 export type { StyleLearnings } from "./analyze-feedback";
 export { refineStylePrompt } from "./refine-style";
