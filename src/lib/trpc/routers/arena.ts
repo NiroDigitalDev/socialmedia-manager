@@ -397,4 +397,95 @@ export const arenaRouter = router({
         data: { status: "completed" },
       });
     }),
+
+  rateEntry: orgProtectedProcedure
+    .input(
+      z.object({
+        entryId: z.string(),
+        rating: z.enum(["up", "down", "super"]),
+        contentScore: z.number().min(1).max(5).optional(),
+        styleScore: z.number().min(1).max(5).optional(),
+        tags: z.array(z.string()).optional(),
+        comment: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Fetch entry and join to arena for org verification + aspectRatio
+      const entry = await ctx.prisma.labArenaEntry.findUnique({
+        where: { id: input.entryId },
+        include: { arena: true },
+      });
+
+      if (!entry) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Entry not found" });
+      }
+
+      if (entry.orgId !== ctx.orgId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
+
+      if (input.rating === "up") {
+        // Require contentScore and styleScore
+        if (input.contentScore == null || input.styleScore == null) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "contentScore and styleScore are required for an 'up' rating",
+          });
+        }
+
+        return ctx.prisma.labArenaEntry.update({
+          where: { id: input.entryId },
+          data: {
+            rating: "up",
+            contentScore: input.contentScore,
+            styleScore: input.styleScore,
+          },
+        });
+      }
+
+      if (input.rating === "super") {
+        // Export to gallery: create GeneratedPost + GeneratedImage
+        const generatedPost = await ctx.prisma.generatedPost.create({
+          data: {
+            prompt: entry.contentPrompt ?? "",
+            format: "static",
+            aspectRatio: entry.arena.aspectRatio,
+            model: "arena-export",
+            status: "completed",
+            platform: "instagram",
+            orgId: ctx.orgId,
+            projectId: entry.arena.projectId ?? null,
+          },
+        });
+
+        await ctx.prisma.generatedImage.create({
+          data: {
+            postId: generatedPost.id,
+            slideNumber: 1,
+            r2Key: entry.r2Key,
+            mimeType: entry.mimeType ?? "image/png",
+          },
+        });
+
+        return ctx.prisma.labArenaEntry.update({
+          where: { id: input.entryId },
+          data: {
+            rating: "super",
+            contentScore: 5,
+            styleScore: 5,
+            exportedPostId: generatedPost.id,
+          },
+        });
+      }
+
+      // rating === "down"
+      return ctx.prisma.labArenaEntry.update({
+        where: { id: input.entryId },
+        data: {
+          rating: "down",
+          ratingTags: input.tags ?? [],
+          ratingComment: input.comment ?? null,
+        },
+      });
+    }),
 });
