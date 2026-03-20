@@ -105,7 +105,6 @@ export function StyleBreakdownCard({
               id={`continue-${styleName}`}
               checked={continued}
               onCheckedChange={onToggleContinue}
-              size="sm"
             />
           </div>
         </div>

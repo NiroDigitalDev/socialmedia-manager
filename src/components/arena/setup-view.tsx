@@ -97,7 +97,7 @@ export function SetupView({ projectId }: SetupViewProps) {
         countPerStyle,
         aspectRatio: aspectRatio as "1:1" | "3:4" | "4:5" | "9:16",
         model: model as "nano-banana-2" | "nano-banana-pro",
-        ...(brandIdentityId ? { brandIdentityId } : {}),
+        ...(brandIdentityId && brandIdentityId !== "none" ? { brandIdentityId } : {}),
       },
       {
         onSuccess: (data) => {
