@@ -42,14 +42,28 @@ async function batchDeleteR2(r2Keys: string[], context: string): Promise<void> {
   }
 }
 
-/** Retry an async function with exponential backoff */
-async function withRetry<T>(fn: () => Promise<T>, retries = 2, baseDelay = 1000): Promise<T> {
+/** Check if an error is a rate limit (429 / RESOURCE_EXHAUSTED) */
+function isRateLimitError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return msg.includes("resource_exhausted") || msg.includes("429") || msg.includes("rate limit") || msg.includes("quota");
+  }
+  return false;
+}
+
+/** Retry an async function with exponential backoff, longer delays for rate limits */
+async function withRetry<T>(fn: () => Promise<T>, retries = 3, baseDelay = 1000): Promise<T> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       return await fn();
     } catch (error) {
       if (attempt === retries) throw error;
-      await new Promise(resolve => setTimeout(resolve, baseDelay * Math.pow(2, attempt)));
+      // Rate limits get longer backoff (10s, 20s, 40s) vs normal errors (1s, 2s, 4s)
+      const delay = isRateLimitError(error)
+        ? 10000 * Math.pow(2, attempt)
+        : baseDelay * Math.pow(2, attempt);
+      console.warn(`[arena] Retry ${attempt + 1}/${retries} after ${delay}ms${isRateLimitError(error) ? " (rate limit)" : ""}:`, error instanceof Error ? error.message : error);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
   throw new Error("Unreachable");
@@ -333,7 +347,7 @@ export const arenaRouter = router({
       const brandContext = await buildBrandContext(ctx.prisma, input.brandIdentityId);
 
       // 6. Fire-and-forget background generation
-      const limit = pLimit(5);
+      const limit = pLimit(3);
 
       void (async () => {
         // Process all styles in parallel — outlines first, then images via shared pLimit
@@ -705,7 +719,7 @@ export const arenaRouter = router({
       const brandContext = await buildBrandContext(ctx.prisma, arena.brandIdentityId);
 
       // 7. Fire-and-forget background generation with learnings
-      const limit = pLimit(5);
+      const limit = pLimit(3);
 
       void (async () => {
         const styleJobs = input.styles.map(({ styleId, count }) => {
@@ -1079,7 +1093,7 @@ export const arenaRouter = router({
         });
       }
 
-      const limit = pLimit(5);
+      const limit = pLimit(3);
       const results: Record<string, Array<{ text: string; selected: boolean }>> = {};
 
       const jobs = entries.map((entry) =>
