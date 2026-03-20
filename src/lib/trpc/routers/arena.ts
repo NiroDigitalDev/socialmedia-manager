@@ -12,6 +12,7 @@ import {
   type ModelKey,
   type AspectRatio,
   type StyleLearnings,
+  type ReferenceImage,
 } from "@/lib/ai";
 import { fetchFromR2 } from "@/lib/r2";
 import pLimit from "p-limit";
@@ -52,6 +53,86 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, baseDelay = 1000)
     }
   }
   throw new Error("Unreachable");
+}
+
+/** Convert hex color to a human-readable description (prevents Gemini from rendering hex text) */
+function describeColor(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+
+  // Simple hue-based naming
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const lightness = (max + min) / 2 / 255;
+
+  if (max - min < 20) {
+    if (lightness > 0.85) return "white";
+    if (lightness < 0.15) return "near-black dark";
+    return "gray";
+  }
+
+  let hue = 0;
+  const d = max - min;
+  if (max === r) hue = ((g - b) / d + (g < b ? 6 : 0)) * 60;
+  else if (max === g) hue = ((b - r) / d + 2) * 60;
+  else hue = ((r - g) / d + 4) * 60;
+
+  const prefix = lightness > 0.7 ? "light " : lightness < 0.3 ? "dark " : "";
+  if (hue < 15 || hue >= 345) return `${prefix}red`;
+  if (hue < 45) return `${prefix}orange`;
+  if (hue < 70) return `${prefix}yellow`;
+  if (hue < 160) return `${prefix}green`;
+  if (hue < 200) return `${prefix}cyan`;
+  if (hue < 260) return `${prefix}blue`;
+  if (hue < 300) return `${prefix}purple`;
+  return `${prefix}pink`;
+}
+
+interface BrandContextResult {
+  text: string;
+  logoData?: { data: Buffer; mimeType: string };
+}
+
+/** Build brand context for image generation prompts, including logo if available */
+async function buildBrandContext(
+  prisma: import("@/generated/prisma/client").PrismaClient,
+  brandIdentityId: string | null | undefined,
+): Promise<BrandContextResult> {
+  if (!brandIdentityId) return { text: "" };
+
+  const brand = await prisma.brandIdentity.findUnique({
+    where: { id: brandIdentityId },
+    include: { palettes: true },
+  });
+  if (!brand) return { text: "" };
+
+  const parts: string[] = [];
+  if (brand.name) parts.push(`Brand name: ${brand.name} (include once at most, never repeat)`);
+  if (brand.tagline) parts.push(`Brand tagline: "${brand.tagline}" (include at most once if relevant)`);
+  if (brand.palettes.length > 0) {
+    const palette = brand.palettes[0];
+    const accent = describeColor(palette.accentColor);
+    const bg = describeColor(palette.bgColor);
+    parts.push(`Brand color palette: use ${accent} as the accent/highlight color and ${bg} as the background/base color. Apply these colors visually — do NOT write color codes or names as text`);
+  }
+
+  // Fetch logo if available
+  let logoData: BrandContextResult["logoData"] = undefined;
+  if (brand.logoAssetId) {
+    try {
+      const asset = await prisma.asset.findUnique({ where: { id: brand.logoAssetId }, select: { r2Key: true, mimeType: true } });
+      if (asset?.r2Key) {
+        const fetched = await fetchFromR2(asset.r2Key);
+        logoData = { data: fetched.data, mimeType: fetched.contentType };
+        parts.push("A brand logo image is attached — reference its visual style and incorporate it naturally if appropriate. Do NOT distort or heavily modify the logo");
+      }
+    } catch {
+      // Logo fetch failed, continue without it
+    }
+  }
+
+  return { text: parts.join(". "), logoData };
 }
 
 // ── Router ──────────────────────────────────────────────────────
@@ -248,57 +329,42 @@ export const arenaRouter = router({
       // 4. Return immediately
       const result = { arenaId: arena.id, roundId: round.id, entryIds };
 
-      // 5. Fetch brand context if brandIdentityId provided
-      let brandContext = "";
-      if (input.brandIdentityId) {
-        const brand = await ctx.prisma.brandIdentity.findUnique({
-          where: { id: input.brandIdentityId },
-          include: { palettes: true },
-        });
-        if (brand) {
-          const parts: string[] = [];
-          if (brand.name) parts.push(`Brand: ${brand.name}`);
-          if (brand.tagline) parts.push(`Tagline: "${brand.tagline}"`);
-          if (brand.palettes.length > 0) {
-            const palette = brand.palettes[0];
-            parts.push(`Brand colors — Accent: ${palette.accentColor}, Background: ${palette.bgColor}`);
-          }
-          brandContext = parts.join(". ");
-        }
-      }
+      // 5. Fetch brand context
+      const brandContext = await buildBrandContext(ctx.prisma, input.brandIdentityId);
 
       // 6. Fire-and-forget background generation
       const limit = pLimit(5);
 
       void (async () => {
-        // Group entries by style
+        // Process all styles in parallel — outlines first, then images via shared pLimit
         let entryIndex = 0;
-        for (const styleId of input.imageStyleIds) {
+        const styleJobs = input.imageStyleIds.map((styleId) => {
           const styleEntryIds = entryIds.slice(entryIndex, entryIndex + input.countPerStyle);
           entryIndex += input.countPerStyle;
 
-          try {
-            // Fetch style promptText
-            const style = await ctx.prisma.style.findUnique({
-              where: { id: styleId },
-              select: { promptText: true },
-            });
-            const stylePrompt = style?.promptText ?? "";
+          return (async () => {
+            try {
+              // Fetch style promptText
+              const style = await ctx.prisma.style.findUnique({
+                where: { id: styleId },
+                select: { promptText: true },
+              });
+              const stylePrompt = style?.promptText ?? "";
 
-            // Generate outlines for this style — one per entry
-            const outlinePromptParts = [
-              input.sourceText,
-              stylePrompt && `Visual style direction: ${stylePrompt}. Design the outline to work well with this aesthetic.`,
-            ].filter(Boolean);
-            const outlinePrompt = outlinePromptParts.join("\n\n");
+              // Generate outlines for this style — one per entry
+              const outlinePromptParts = [
+                input.sourceText,
+                stylePrompt && `Visual style direction: ${stylePrompt}. Design the outline to work well with this aesthetic.`,
+              ].filter(Boolean);
+              const outlinePrompt = outlinePromptParts.join("\n\n");
 
-            const outlines = await withRetry(() =>
-              aiGenerateOutlines(outlinePrompt, input.countPerStyle),
-            );
+              const outlines = await withRetry(() =>
+                aiGenerateOutlines(outlinePrompt, input.countPerStyle),
+              );
 
-            // Generate images for each entry
-            const jobs = styleEntryIds.map((entryId, i) =>
-              limit(async () => {
+              // Generate images for each entry — all styles share the same pLimit
+              const jobs = styleEntryIds.map((entryId, i) =>
+                limit(async () => {
                 try {
                   // Cancellation check
                   const current = await ctx.prisma.labArenaEntry.findUnique({ where: { id: entryId } });
@@ -321,16 +387,23 @@ export const arenaRouter = router({
                     stylePrompt && `Visual style: ${stylePrompt}`,
                     overallTheme && `Theme: ${overallTheme}`,
                     slidesText && `Outline:\n${slidesText}`,
-                    brandContext && `Brand context: ${brandContext}`,
-                    input.countPerStyle > 1 && `Variation ${i + 1} of ${input.countPerStyle}: Make this visually distinct.`,
+                    brandContext.text && `Brand context: ${brandContext.text}`,
+                    input.countPerStyle > 1 && `Create a unique visual interpretation. Use different composition, layout angles, or emphasis — but do NOT write any variation numbers or meta-text in the image.`,
                   ].filter(Boolean);
                   const imagePrompt = promptParts.join("\n\n");
+
+                  // Build reference images (brand logo)
+                  const refImages: ReferenceImage[] = [];
+                  if (brandContext.logoData) {
+                    refImages.push(brandContext.logoData);
+                  }
 
                   const imgResult = await withRetry(() =>
                     generateImageFromPrompt(
                       imagePrompt,
                       input.model as ModelKey,
                       input.aspectRatio as AspectRatio,
+                      refImages.length > 0 ? refImages : undefined,
                     ),
                   );
 
@@ -352,7 +425,8 @@ export const arenaRouter = router({
                       contentPrompt: imagePrompt,
                     },
                   });
-                } catch {
+                } catch (err) {
+                  console.error(`[arena] Image generation failed for entry ${entryId}:`, err instanceof Error ? err.message : err);
                   try {
                     await ctx.prisma.labArenaEntry.update({
                       where: { id: entryId },
@@ -365,22 +439,26 @@ export const arenaRouter = router({
               })
             );
 
-            await Promise.allSettled(jobs);
-          } catch (err) {
-            // If outline generation fails for this style, mark all its entries as failed
-            console.error(`[arena.createArena] Outline generation failed for style ${styleId}:`, err);
-            for (const entryId of styleEntryIds) {
-              try {
-                await ctx.prisma.labArenaEntry.update({
-                  where: { id: entryId },
-                  data: { status: "failed" },
-                });
-              } catch {
-                // Ignore
+              await Promise.allSettled(jobs);
+            } catch (err) {
+              // If outline generation fails for this style, mark all its entries as failed
+              console.error(`[arena.createArena] Outline generation failed for style ${styleId}:`, err);
+              for (const entryId of styleEntryIds) {
+                try {
+                  await ctx.prisma.labArenaEntry.update({
+                    where: { id: entryId },
+                    data: { status: "failed" },
+                  });
+                } catch {
+                  // Ignore
+                }
               }
             }
-          }
-        }
+          })();
+        });
+
+        // All styles process in parallel
+        await Promise.allSettled(styleJobs);
       })();
 
       return result;
@@ -623,34 +701,18 @@ export const arenaRouter = router({
         learnings: learningsMap,
       };
 
-      // 6. Fetch brand context if brandIdentityId provided
-      let brandContext = "";
-      if (arena.brandIdentityId) {
-        const brand = await ctx.prisma.brandIdentity.findUnique({
-          where: { id: arena.brandIdentityId },
-          include: { palettes: true },
-        });
-        if (brand) {
-          const parts: string[] = [];
-          if (brand.name) parts.push(`Brand: ${brand.name}`);
-          if (brand.tagline) parts.push(`Tagline: "${brand.tagline}"`);
-          if (brand.palettes.length > 0) {
-            const palette = brand.palettes[0];
-            parts.push(
-              `Brand colors — Accent: ${palette.accentColor}, Background: ${palette.bgColor}`
-            );
-          }
-          brandContext = parts.join(". ");
-        }
-      }
+      // 6. Fetch brand context
+      const brandContext = await buildBrandContext(ctx.prisma, arena.brandIdentityId);
 
       // 7. Fire-and-forget background generation with learnings
       const limit = pLimit(5);
 
       void (async () => {
-        for (const { styleId, count } of input.styles) {
+        const styleJobs = input.styles.map(({ styleId, count }) => {
           const currentStyleEntryIds = styleEntryMap[styleId];
           const learnings = learningsMap[styleId];
+
+          return (async () => {
 
           try {
             // Fetch style promptText
@@ -728,17 +790,24 @@ export const arenaRouter = router({
                       `Style learnings — Users disliked: ${learnings.avoidStyle.join(", ")}`,
                     overallTheme && `Theme: ${overallTheme}`,
                     slidesText && `Outline:\n${slidesText}`,
-                    brandContext && `Brand context: ${brandContext}`,
+                    brandContext.text && `Brand context: ${brandContext.text}`,
                     count > 1 &&
-                      `Variation ${i + 1} of ${count}: Make this visually distinct.`,
+                      `Create a unique visual interpretation. Use different composition, layout angles, or emphasis — but do NOT write any variation numbers or meta-text in the image.`,
                   ].filter(Boolean);
                   const imagePrompt = promptParts.join("\n\n");
+
+                  // Build reference images (brand logo)
+                  const refImages: ReferenceImage[] = [];
+                  if (brandContext.logoData) {
+                    refImages.push(brandContext.logoData);
+                  }
 
                   const imgResult = await withRetry(() =>
                     generateImageFromPrompt(
                       imagePrompt,
                       arena.model as ModelKey,
-                      arena.aspectRatio as AspectRatio
+                      arena.aspectRatio as AspectRatio,
+                      refImages.length > 0 ? refImages : undefined,
                     )
                   );
 
@@ -760,7 +829,8 @@ export const arenaRouter = router({
                       contentPrompt: imagePrompt,
                     },
                   });
-                } catch {
+                } catch (err) {
+                  console.error(`[arena] Image generation failed for entry ${entryId}:`, err instanceof Error ? err.message : err);
                   try {
                     await ctx.prisma.labArenaEntry.update({
                       where: { id: entryId },
@@ -773,25 +843,29 @@ export const arenaRouter = router({
               })
             );
 
-            await Promise.allSettled(jobs);
-          } catch (err) {
-            // If outline generation fails for this style, mark all its entries as failed
-            console.error(
-              `[arena.generateNextRound] Outline generation failed for style ${styleId}:`,
-              err
-            );
-            for (const entryId of currentStyleEntryIds) {
-              try {
-                await ctx.prisma.labArenaEntry.update({
-                  where: { id: entryId },
-                  data: { status: "failed" },
-                });
-              } catch {
-                // Ignore
+              await Promise.allSettled(jobs);
+            } catch (err) {
+              // If outline generation fails for this style, mark all its entries as failed
+              console.error(
+                `[arena.generateNextRound] Outline generation failed for style ${styleId}:`,
+                err
+              );
+              for (const entryId of currentStyleEntryIds) {
+                try {
+                  await ctx.prisma.labArenaEntry.update({
+                    where: { id: entryId },
+                    data: { status: "failed" },
+                  });
+                } catch {
+                  // Ignore
+                }
               }
             }
-          }
-        }
+          })();
+        });
+
+        // All styles process in parallel
+        await Promise.allSettled(styleJobs);
       })();
 
       return result;

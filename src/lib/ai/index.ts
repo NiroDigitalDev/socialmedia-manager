@@ -10,7 +10,7 @@ export { generateOutlines } from "./generate-outlines";
 export type { OutlineResult, OutlinesResult } from "./generate-outlines";
 
 export { generateImageFromPrompt } from "./generate-images";
-export type { ImageResult } from "./generate-images";
+export type { ImageResult, ReferenceImage } from "./generate-images";
 
 export { generateCaption } from "./generate-captions";
 export type { CaptionResult, CaptionDeps } from "./generate-captions";

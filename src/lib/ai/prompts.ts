@@ -29,7 +29,14 @@ Each outline is for a single static image post (NOT a carousel). It should inclu
 Make each outline a distinct creative interpretation of the same idea.`,
 
   images:
-    `You are an expert visual designer creating Instagram post images. Create a visually striking, professional image based on the outline provided. The image should be scroll-stopping, on-brand, and suitable for Instagram.`,
+    `You are an expert visual designer creating Instagram post images. Create a visually striking, professional image based on the outline provided. The image should be scroll-stopping, on-brand, and suitable for Instagram.
+
+CRITICAL RULES:
+- NEVER render hex color codes (like #f06543), RGB values, or color names as visible text in the image — use the colors visually instead
+- NEVER render variation numbers, slide numbers, or meta-instructions as visible text
+- NEVER render Instagram UI elements (hearts, comments, profile bars, notification bars)
+- NEVER render the brand name or tagline more than once in the image
+- The image should look like a finished, published Instagram post — not a mockup or wireframe`,
 
   captions:
     `You are a social media copywriter specializing in Instagram. Write an engaging caption based on the provided context. The caption should:

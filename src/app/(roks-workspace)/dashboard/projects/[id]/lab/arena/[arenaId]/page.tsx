@@ -218,8 +218,8 @@ export default function ArenaPage({
     );
   }
 
-  // ── Generating / Progress state ──
-  if (generatingEntries.length > 0) {
+  // ── Generating with no completed entries yet — show progress spinner ──
+  if (generatingEntries.length > 0 && !hasUnratedCompleted) {
     return (
       <div className="flex h-full flex-col bg-background">
         <div className="flex items-center gap-3 border-b px-4 py-2">
@@ -243,7 +243,7 @@ export default function ArenaPage({
     );
   }
 
-  // ── SwipeView — has unrated completed entries in latest round ──
+  // ── SwipeView — has unrated completed entries (may still be generating others) ──
   if (hasUnratedCompleted && latestRound) {
     return (
       <div className="flex h-full flex-col bg-background">
