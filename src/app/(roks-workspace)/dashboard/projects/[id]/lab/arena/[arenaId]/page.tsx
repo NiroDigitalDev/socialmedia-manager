@@ -1,10 +1,17 @@
 "use client";
 
-import { use, useMemo, useEffect, useRef } from "react";
+import { use, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useArena, useArenaProgress } from "@/hooks/use-arena";
+import {
+  useArena,
+  useArenaProgress,
+  useGenerateNextRound,
+} from "@/hooks/use-arena";
+import { useStyles } from "@/hooks/use-styles";
 import { useTRPC } from "@/lib/trpc/client";
 import { SetupView } from "@/components/arena/setup-view";
+import { SwipeView } from "@/components/arena/swipe-view";
+import { ResultsView } from "@/components/arena/results-view";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeftIcon, Loader2Icon } from "lucide-react";
@@ -25,6 +32,18 @@ export default function ArenaPage({
   const isNew = arenaId === "new";
 
   const { data: arena, isLoading, isError } = useArena(isNew ? undefined : arenaId);
+
+  // Fetch styles to build styleNames map
+  const { data: allStyles } = useStyles();
+  const styleNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (allStyles) {
+      for (const style of allStyles as Array<{ id: string; name: string }>) {
+        map[style.id] = style.name;
+      }
+    }
+    return map;
+  }, [allStyles]);
 
   // Determine generating state
   const hasGenerating = useMemo(
@@ -58,6 +77,95 @@ export default function ArenaPage({
       });
     }
   }, [progressEntries, queryClient, trpc, arenaId]);
+
+  // Generate next round mutation
+  const generateNextRound = useGenerateNextRound();
+
+  // ── Derived arena state ──
+  const allEntries = useMemo(
+    () =>
+      (arena?.entries ?? []) as unknown as Array<{
+        id: string;
+        status: string;
+        rating: string | null;
+        roundId: string;
+        r2Key: string | null;
+        imageStyleId: string;
+        contentScore: number | null;
+        styleScore: number | null;
+        ratingTags: string[];
+        exportedPostId: string | null;
+        captions: unknown;
+      }>,
+    [arena?.entries],
+  );
+
+  const rounds = useMemo(
+    () =>
+      (arena?.rounds ?? []) as unknown as Array<{
+        id: string;
+        roundNumber: number;
+        learnings: unknown;
+      }>,
+    [arena?.rounds],
+  );
+
+  const latestRound = useMemo(
+    () =>
+      rounds.length > 0
+        ? rounds.reduce((a, b) => (a.roundNumber > b.roundNumber ? a : b))
+        : null,
+    [rounds],
+  );
+
+  const generatingEntries = useMemo(
+    () => allEntries.filter((e) => e.status === "generating"),
+    [allEntries],
+  );
+
+  const completedEntries = useMemo(
+    () => allEntries.filter((e) => e.status === "completed"),
+    [allEntries],
+  );
+
+  const hasUnratedCompleted = useMemo(
+    () =>
+      latestRound
+        ? allEntries.some(
+            (e) =>
+              e.roundId === latestRound.id &&
+              e.status === "completed" &&
+              e.rating === null,
+          )
+        : false,
+    [allEntries, latestRound],
+  );
+
+  // ── Handlers ──
+
+  const handleSwipeComplete = useCallback(() => {
+    // Invalidate arena data so we re-derive the view (should switch to ResultsView)
+    queryClient.invalidateQueries({
+      queryKey: trpc.arena.getArena.queryKey({ arenaId }),
+    });
+  }, [queryClient, trpc, arenaId]);
+
+  const handleGenerateNextRound = useCallback(
+    (styles: Array<{ styleId: string; count: number }>) => {
+      if (!latestRound) return;
+      generateNextRound.mutate({
+        arenaId,
+        previousRoundId: latestRound.id,
+        styles,
+      });
+      // After mutation succeeds, the arena data will refresh and show generating state
+    },
+    [arenaId, latestRound, generateNextRound],
+  );
+
+  const handleDone = useCallback(() => {
+    router.push(`/dashboard/projects/${projectId}/lab`);
+  }, [router, projectId]);
 
   // ── New arena ──
   if (isNew) {
@@ -110,33 +218,6 @@ export default function ArenaPage({
     );
   }
 
-  // ── Determine view based on arena state ──
-  const allEntries = arena.entries as unknown as Array<{
-    id: string;
-    status: string;
-    rating: string | null;
-    roundId: string;
-    r2Key: string | null;
-  }>;
-
-  const generatingEntries = allEntries.filter((e) => e.status === "generating");
-  const completedEntries = allEntries.filter((e) => e.status === "completed");
-  const totalEntries = allEntries.length;
-
-  // Get the latest round
-  const rounds = (arena.rounds ?? []) as unknown as Array<{ id: string; roundNumber: number }>;
-  const latestRound = rounds.length > 0
-    ? rounds.reduce((a, b) => (a.roundNumber > b.roundNumber ? a : b))
-    : null;
-
-  const latestRoundEntries = latestRound
-    ? allEntries.filter((e) => e.roundId === latestRound.id)
-    : [];
-
-  const hasUnratedCompleted = latestRoundEntries.some(
-    (e) => e.rating === null && e.status === "completed",
-  );
-
   // ── Generating / Progress state ──
   if (generatingEntries.length > 0) {
     return (
@@ -154,7 +235,7 @@ export default function ArenaPage({
           <div className="text-center">
             <p className="text-sm font-medium">Generating images...</p>
             <p className="text-xs text-muted-foreground mt-1">
-              {completedEntries.length} / {totalEntries} completed
+              {completedEntries.length} / {allEntries.length} completed
             </p>
           </div>
         </div>
@@ -162,11 +243,8 @@ export default function ArenaPage({
     );
   }
 
-  // Check if all entries just finished generating (none generating, but we have completed unrated)
-  const allDoneJustNow = generatingEntries.length === 0 && completedEntries.length > 0 && hasUnratedCompleted;
-
-  // ── All done, ready to swipe ──
-  if (allDoneJustNow) {
+  // ── SwipeView — has unrated completed entries in latest round ──
+  if (hasUnratedCompleted && latestRound) {
     return (
       <div className="flex h-full flex-col bg-background">
         <div className="flex items-center gap-3 border-b px-4 py-2">
@@ -177,49 +255,20 @@ export default function ArenaPage({
           </Button>
           <h1 className="text-sm font-semibold truncate">{arena.name}</h1>
         </div>
-        <div className="flex flex-1 flex-col items-center justify-center gap-4">
-          <div className="text-center">
-            <p className="text-sm font-medium">All images generated!</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {completedEntries.length} images ready to review
-            </p>
-          </div>
-          <Button
-            onClick={() =>
-              router.push(`/dashboard/projects/${projectId}/lab/arena/${arenaId}`)
-            }
-          >
-            Start Swiping
-          </Button>
-          {/* SwipeView placeholder — will be replaced in Task 11 */}
-          <div className="hidden" data-placeholder="swipe-view" />
+        <div className="flex-1 overflow-hidden">
+          <SwipeView
+            roundId={latestRound.id}
+            roundNumber={latestRound.roundNumber}
+            arenaId={arenaId}
+            onComplete={handleSwipeComplete}
+            styleNames={styleNames}
+          />
         </div>
       </div>
     );
   }
 
-  // ── SwipeView placeholder (has unrated completed entries in latest round) ──
-  if (hasUnratedCompleted) {
-    return (
-      <div className="flex h-full flex-col bg-background">
-        <div className="flex items-center gap-3 border-b px-4 py-2">
-          <Button variant="ghost" size="icon" className="size-7" asChild>
-            <Link href={`/dashboard/projects/${projectId}/lab`}>
-              <ArrowLeftIcon className="size-4" />
-            </Link>
-          </Button>
-          <h1 className="text-sm font-semibold truncate">{arena.name}</h1>
-        </div>
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
-          <p className="text-sm text-muted-foreground">
-            SwipeView placeholder — will be implemented in Task 11
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // ── ResultsView placeholder (all entries rated or no unrated completed in latest round) ──
+  // ── ResultsView — all entries rated (or no unrated completed in latest round) ──
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="flex items-center gap-3 border-b px-4 py-2">
@@ -230,10 +279,19 @@ export default function ArenaPage({
         </Button>
         <h1 className="text-sm font-semibold truncate">{arena.name}</h1>
       </div>
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
-        <p className="text-sm text-muted-foreground">
-          ResultsView placeholder — will be implemented in Task 12
-        </p>
+      <div className="flex-1 overflow-hidden">
+        <ResultsView
+          arena={{
+            id: arena.id as string,
+            name: arena.name as string,
+            projectId: projectId,
+            rounds,
+            entries: allEntries,
+          }}
+          styleNames={styleNames}
+          onGenerateNextRound={handleGenerateNextRound}
+          onDone={handleDone}
+        />
       </div>
     </div>
   );
