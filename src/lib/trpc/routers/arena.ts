@@ -150,6 +150,40 @@ async function buildBrandContext(
   return { text: parts.join(". "), logoData };
 }
 
+/** Build a content-focused user prompt from an outline, using new schema fields when available */
+function buildOutlineContentPrompt(outline: {
+  format?: string;
+  overallTheme?: string;
+  headline?: string;
+  supportingText?: string;
+  textPlacement?: string;
+  visualDirection?: string;
+  slides?: Array<{ title?: string; description?: string; layoutNotes?: string }>;
+}): string {
+  const parts: string[] = [];
+
+  if (outline.format) parts.push(`Content format: ${outline.format}`);
+  if (outline.overallTheme) parts.push(`Theme: ${outline.overallTheme}`);
+
+  // Prefer new fields, fall back to slides
+  if (outline.headline) {
+    parts.push(`Headline text (render this prominently): "${outline.headline}"`);
+    if (outline.supportingText) {
+      parts.push(`Supporting text (render smaller, secondary): "${outline.supportingText}"`);
+    }
+    if (outline.textPlacement) parts.push(`Text placement: ${outline.textPlacement}`);
+    if (outline.visualDirection) parts.push(`Visual direction: ${outline.visualDirection}`);
+  } else if (outline.slides && outline.slides.length > 0) {
+    // Legacy fallback
+    const s = outline.slides[0];
+    if (s.title) parts.push(`Headline: "${s.title}"`);
+    if (s.description) parts.push(`Description: ${s.description}`);
+    if (s.layoutNotes) parts.push(`Layout: ${s.layoutNotes}`);
+  }
+
+  return parts.join("\n");
+}
+
 // ── Router ──────────────────────────────────────────────────────
 
 export const arenaRouter = router({
@@ -385,25 +419,18 @@ export const arenaRouter = router({
 
                   // Use outline if available, otherwise use source text
                   const outline = i < outlines.length ? outlines[i] : outlines[outlines.length - 1];
-                  const overallTheme = outline?.overallTheme ?? "";
-                  const slides = outline?.slides ?? [];
 
-                  const slidesText = slides
-                    .map((s, idx) => {
-                      return `Slide ${idx + 1}: ${s.title ?? ""} — ${s.description ?? ""}${s.layoutNotes ? ` (Layout: ${s.layoutNotes})` : ""}`;
-                    })
-                    .join("\n");
+                  // Build content prompt (user prompt) from outline
+                  const outlineContent = outline ? buildOutlineContentPrompt(outline) : "";
 
-                  // Build image prompt
-                  const promptParts = [
-                    PROMPTS.images,
+                  // User prompt = content + style + brand (what to create)
+                  const userPromptParts = [
                     stylePrompt && `Visual style: ${stylePrompt}`,
-                    overallTheme && `Theme: ${overallTheme}`,
-                    slidesText && `Outline:\n${slidesText}`,
+                    outlineContent,
                     brandContext.text && `Brand context: ${brandContext.text}`,
                     input.countPerStyle > 1 && `Create a unique visual interpretation. Use different composition, layout angles, or emphasis — but do NOT write any variation numbers or meta-text in the image.`,
                   ].filter(Boolean);
-                  const imagePrompt = promptParts.join("\n\n");
+                  const imagePrompt = userPromptParts.join("\n\n");
 
                   // Build reference images (brand logo)
                   const refImages: ReferenceImage[] = [];
@@ -417,6 +444,7 @@ export const arenaRouter = router({
                       input.model as ModelKey,
                       input.aspectRatio as AspectRatio,
                       refImages.length > 0 ? refImages : undefined,
+                      PROMPTS.images, // System prompt: design principles + rules
                     ),
                   );
 
@@ -669,7 +697,11 @@ export const arenaRouter = router({
             withRetry(() =>
               refineOutlinePrompt(
                 previousOutlinePrompt,
-                { keepContent: learnings.keepContent, avoidContent: learnings.avoidContent },
+                {
+                  keepContent: learnings.keepContent,
+                  avoidContent: learnings.avoidContent,
+                  contentDirectives: learnings.contentDirectives,
+                },
                 positiveOutlines,
                 PROMPTS.outlines(count),
               )
@@ -677,7 +709,11 @@ export const arenaRouter = router({
             withRetry(() =>
               refineImagePrompt(
                 previousImagePrompt,
-                { keepStyle: learnings.keepStyle, avoidStyle: learnings.avoidStyle },
+                {
+                  keepStyle: learnings.keepStyle,
+                  avoidStyle: learnings.avoidStyle,
+                  styleDirectives: learnings.styleDirectives,
+                },
                 positivePrompts,
                 PROMPTS.images,
               )
@@ -786,26 +822,22 @@ export const arenaRouter = router({
                     i < outlines.length
                       ? outlines[i]
                       : outlines[outlines.length - 1];
-                  const overallTheme = outline?.overallTheme ?? "";
-                  const slides = outline?.slides ?? [];
 
-                  const slidesText = slides
-                    .map((s, idx) => {
-                      return `Slide ${idx + 1}: ${s.title ?? ""} — ${s.description ?? ""}${s.layoutNotes ? ` (Layout: ${s.layoutNotes})` : ""}`;
-                    })
-                    .join("\n");
+                  // Build content prompt from outline
+                  const outlineContent = outline ? buildOutlineContentPrompt(outline) : "";
 
+                  // Refined image prompt = system prompt (design rules evolved by feedback)
                   const refinedImage = refinedPromptsMap[styleId].refinedImagePrompt;
-                  const promptParts = [
-                    refinedImage,
+
+                  // User prompt = content + style + brand
+                  const userPromptParts = [
                     stylePrompt && `Visual style: ${stylePrompt}`,
-                    overallTheme && `Theme: ${overallTheme}`,
-                    slidesText && `Outline:\n${slidesText}`,
+                    outlineContent,
                     brandContext.text && `Brand context: ${brandContext.text}`,
                     count > 1 &&
                       `Create a unique visual interpretation. Use different composition, layout angles, or emphasis — but do NOT write any variation numbers or meta-text in the image.`,
                   ].filter(Boolean);
-                  const imagePrompt = promptParts.join("\n\n");
+                  const imagePrompt = userPromptParts.join("\n\n");
 
                   // Build reference images (brand logo)
                   const refImages: ReferenceImage[] = [];
@@ -819,6 +851,7 @@ export const arenaRouter = router({
                       arena.model as ModelKey,
                       arena.aspectRatio as AspectRatio,
                       refImages.length > 0 ? refImages : undefined,
+                      refinedImage, // System prompt: refined design rules
                     )
                   );
 

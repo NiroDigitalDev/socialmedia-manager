@@ -18,14 +18,18 @@ export interface ReferenceImage {
  * Uses generateText with responseModalities: ['IMAGE'] to get image output.
  * Images are returned in result.files as base64 + Uint8Array.
  *
- * Optionally accepts reference images (e.g. brand logo) that are sent as
- * multimodal content parts alongside the text prompt.
+ * @param prompt - The user prompt describing what to generate (content, style, outline)
+ * @param modelKey - Which image model to use
+ * @param aspectRatio - Instagram aspect ratio
+ * @param referenceImages - Optional reference images (e.g. brand logo)
+ * @param systemPrompt - Optional system prompt with design principles and rules
  */
 export async function generateImageFromPrompt(
   prompt: string,
   modelKey: ModelKey,
   aspectRatio: AspectRatio,
   referenceImages?: ReferenceImage[],
+  systemPrompt?: string,
 ): Promise<ImageResult> {
   const providerOptions = {
     google: {
@@ -40,6 +44,7 @@ export async function generateImageFromPrompt(
     // Multimodal: send reference images + text prompt as message parts
     result = await generateText({
       model: imageModels[modelKey],
+      system: systemPrompt,
       messages: [
         {
           role: "user",
@@ -62,6 +67,7 @@ export async function generateImageFromPrompt(
     // Text-only prompt
     result = await generateText({
       model: imageModels[modelKey],
+      system: systemPrompt,
       prompt,
       providerOptions,
     });

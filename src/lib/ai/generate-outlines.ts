@@ -10,12 +10,56 @@ const slideSchema = z.object({
 });
 
 const outlineSchema = z.object({
+  format: z
+    .enum([
+      "headline",
+      "statistic",
+      "quote",
+      "tip-list",
+      "how-to",
+      "before-after",
+      "question",
+      "visual-first",
+    ])
+    .optional()
+    .describe("Content format type"),
   overallTheme: z.string(),
-  slides: z.array(slideSchema).length(1).describe("Exactly 1 slide for a static post"),
+  headline: z
+    .string()
+    .optional()
+    .describe("Primary text on the image — punchy, 3-8 words ideal"),
+  supportingText: z
+    .string()
+    .optional()
+    .describe("Optional secondary text — 1 short sentence max"),
+  textPlacement: z
+    .enum([
+      "center",
+      "top",
+      "bottom",
+      "left-third",
+      "right-third",
+      "overlay-on-image",
+    ])
+    .optional()
+    .describe("Where text should sit on the image"),
+  visualDirection: z
+    .string()
+    .optional()
+    .describe(
+      "What the visual/graphic elements should show (imagery, not text)",
+    ),
+  // Backward-compatible slides array
+  slides: z
+    .array(slideSchema)
+    .length(1)
+    .describe("Exactly 1 slide for a static post"),
 });
 
 const outlinesResultSchema = z.object({
-  outlines: z.array(outlineSchema).describe("Array of structured post outlines"),
+  outlines: z
+    .array(outlineSchema)
+    .describe("Array of structured post outlines"),
 });
 
 export type OutlineResult = z.infer<typeof outlineSchema>;

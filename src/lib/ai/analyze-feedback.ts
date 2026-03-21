@@ -7,6 +7,16 @@ const learningsSchema = z.object({
   keepStyle: z.array(z.string()),
   avoidContent: z.array(z.string()),
   avoidStyle: z.array(z.string()),
+  contentDirectives: z
+    .array(z.string())
+    .describe(
+      "Specific, actionable prompt instructions for content/outline generation",
+    ),
+  styleDirectives: z
+    .array(z.string())
+    .describe(
+      "Specific, actionable prompt instructions for image style/visual generation",
+    ),
   summary: z.string(),
 });
 
@@ -33,13 +43,32 @@ export async function analyzeFeedback(
     `Total entries: ${entries.length}`,
     `Approved (good to post): ${upEntries.length}`,
     upEntries.length > 0 &&
-      `Approved entries:\n${upEntries.map((e) => {
-        const outline = e.outlineContent as { overallTheme?: string; slides?: Array<{ title?: string }> } | null;
-        const theme = outline?.overallTheme ? `Theme: "${outline.overallTheme}"` : "";
-        const slides = outline?.slides?.map((s) => s.title).filter(Boolean).join(", ");
-        const outlineInfo = theme || slides ? `${theme}${slides ? ` | Slides: ${slides}` : ""}` : "";
-        return `- ${outlineInfo || "no outline"}${e.contentPrompt ? ` | Prompt: ${e.contentPrompt.slice(0, 150)}` : ""}`;
-      }).join("\n")}`,
+      `Approved entries:\n${upEntries
+        .map((e) => {
+          const outline = e.outlineContent as {
+            format?: string;
+            overallTheme?: string;
+            headline?: string;
+            supportingText?: string;
+            textPlacement?: string;
+            visualDirection?: string;
+            slides?: Array<{ title?: string; description?: string }>;
+          } | null;
+          const parts: string[] = [];
+          if (outline?.format) parts.push(`Format: ${outline.format}`);
+          if (outline?.overallTheme)
+            parts.push(`Theme: "${outline.overallTheme}"`);
+          if (outline?.headline) parts.push(`Headline: "${outline.headline}"`);
+          if (outline?.textPlacement)
+            parts.push(`Placement: ${outline.textPlacement}`);
+          if (outline?.visualDirection)
+            parts.push(`Visual: ${outline.visualDirection}`);
+          // Legacy fallback
+          if (!outline?.headline && outline?.slides?.[0]?.title)
+            parts.push(`Title: "${outline.slides[0].title}"`);
+          return `- ${parts.join(" | ") || "no outline"}`;
+        })
+        .join("\n")}`,
     `Rejected: ${downEntries.length}`,
     downEntries.length > 0 &&
       `Rejection details:\n${downEntries
@@ -54,19 +83,35 @@ export async function analyzeFeedback(
 
   const { output } = await generateText({
     model: textModel,
-    system: `You are an AI design feedback analyst. Given user ratings for AI-generated images in a specific style, extract two-dimensional learnings:
-- CONTENT learnings: what layouts, concepts, compositions, and messaging approaches worked or didn't
-- STYLE learnings: what visual treatments, colors, textures, and aesthetic choices worked or didn't
+    system: `You are an AI design feedback analyst for Instagram post generation. Given user ratings for AI-generated images, extract learnings AND produce actionable prompt directives.
 
-Thumbs-up entries are positive examples — learn from what made them publishable.
+Your output has two layers:
+
+LAYER 1 — LEARNINGS (what worked / what didn't):
+- keepContent / avoidContent: observations about content, layout, messaging
+- keepStyle / avoidStyle: observations about visual style, colors, typography
+
+LAYER 2 — DIRECTIVES (specific prompt instructions):
+- contentDirectives: concrete instructions that should be inserted into the OUTLINE generation prompt. These should read like prompt instructions, not observations.
+  Example observations → directives:
+  - "Users liked product-focused layouts" → "Center the main subject as the visual anchor with minimal surrounding elements"
+  - "Users disliked too much text" → "Limit headline to 5 words maximum. Omit supporting text unless essential"
+  - "Users liked clean layouts" → "Use at least 40% whitespace. Never fill the entire image with content"
+
+- styleDirectives: concrete instructions that should be inserted into the IMAGE generation prompt.
+  Example observations → directives:
+  - "Users liked warm earth tones" → "Use a warm color palette: terracotta, sage green, warm cream. Avoid cool blues and grays"
+  - "Users disliked serif fonts" → "Use clean, modern sans-serif typography only"
+  - "Users liked minimalist aesthetic" → "Keep visual elements to a maximum of 3. Use generous negative space"
+
+Directives should be SPECIFIC and ACTIONABLE — they will be directly integrated into AI generation prompts. Write them as instructions, not observations.
 
 Thumbs-down entries have rejection tags grouped into categories:
-- Content tags (bad composition, cluttered / too much text, confusing layout, wrong message / off-topic, boring / generic, text too small to read, missing key information, awkward text placement) → extract CONTENT learnings
-- Style tags (wrong style / doesn't match, ugly colors, off-brand, bad typography, low quality / blurry, too dark / too bright, colors clash, feels outdated, too generic / stock-photo feel) → extract STYLE learnings
-- Both tags (too busy, doesn't feel Instagram-ready, would never post this) → extract both CONTENT and STYLE learnings
+- Content tags (bad composition, cluttered / too much text, confusing layout, wrong message / off-topic, boring / generic, text too small to read, missing key information, awkward text placement) → extract CONTENT learnings + contentDirectives
+- Style tags (wrong style / doesn't match, ugly colors, off-brand, bad typography, low quality / blurry, too dark / too bright, colors clash, feels outdated, too generic / stock-photo feel) → extract STYLE learnings + styleDirectives
+- Both tags (too busy, doesn't feel Instagram-ready, would never post this) → extract both
 
-Comments may contain additional context for either dimension.
-Be specific and actionable in your learnings.`,
+Be specific and actionable. Each directive should be 1 sentence that a prompt engineer can paste directly into a system prompt.`,
     prompt: feedbackSummary,
     output: Output.object({ schema: learningsSchema }),
   });
@@ -77,6 +122,8 @@ Be specific and actionable in your learnings.`,
       keepStyle: [],
       avoidContent: [],
       avoidStyle: [],
+      contentDirectives: [],
+      styleDirectives: [],
       summary: "No learnings generated.",
     }
   );
