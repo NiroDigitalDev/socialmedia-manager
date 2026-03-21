@@ -33,7 +33,13 @@ export async function analyzeFeedback(
     `Total entries: ${entries.length}`,
     `Approved (good to post): ${upEntries.length}`,
     upEntries.length > 0 &&
-      `Approved entry prompts:\n${upEntries.map((e) => `- ${e.contentPrompt?.slice(0, 200)}`).join("\n")}`,
+      `Approved entries:\n${upEntries.map((e) => {
+        const outline = e.outlineContent as { overallTheme?: string; slides?: Array<{ title?: string }> } | null;
+        const theme = outline?.overallTheme ? `Theme: "${outline.overallTheme}"` : "";
+        const slides = outline?.slides?.map((s) => s.title).filter(Boolean).join(", ");
+        const outlineInfo = theme || slides ? `${theme}${slides ? ` | Slides: ${slides}` : ""}` : "";
+        return `- ${outlineInfo || "no outline"}${e.contentPrompt ? ` | Prompt: ${e.contentPrompt.slice(0, 150)}` : ""}`;
+      }).join("\n")}`,
     `Rejected: ${downEntries.length}`,
     downEntries.length > 0 &&
       `Rejection details:\n${downEntries

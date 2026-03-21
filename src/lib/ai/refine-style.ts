@@ -9,6 +9,7 @@ export async function refineImagePrompt(
   currentPrompt: string,
   styleLearnings: { keepStyle: string[]; avoidStyle: string[] },
   positivePrompts: string[],
+  originalBasePrompt?: string,
 ): Promise<string> {
   const positiveExamples =
     positivePrompts.length > 0
@@ -17,6 +18,10 @@ export async function refineImagePrompt(
           .map((p) => `- ${p.slice(0, 300)}`)
           .join("\n")}`
       : "";
+
+  const anchorSection = originalBasePrompt
+    ? `\n\nOriginal base prompt (for reference — the CRITICAL RULES section must always be preserved):\n"""\n${originalBasePrompt}\n"""`
+    : "";
 
   const { text } = await generateText({
     model: textModel,
@@ -27,6 +32,8 @@ Rules:
 - Integrate the feedback naturally into the prompt — do NOT append it as a separate "learnings" section
 - Remove or rephrase anything that contradicts the feedback
 - If positive examples are provided, extract patterns that made them successful and weave those into the prompt
+- If an original base prompt is provided, ensure all its CRITICAL RULES are preserved verbatim
+- Keep the output prompt concise — no longer than ~500 words
 - Return ONLY the new prompt text, no explanation or commentary`,
     prompt: `Current image generation system prompt:
 """
@@ -35,7 +42,7 @@ ${currentPrompt}
 
 User feedback:
 - Style elements that worked well: ${styleLearnings.keepStyle.join(", ") || "none specified"}
-- Style elements to avoid: ${styleLearnings.avoidStyle.join(", ") || "none specified"}${positiveExamples}
+- Style elements to avoid: ${styleLearnings.avoidStyle.join(", ") || "none specified"}${positiveExamples}${anchorSection}
 
 Write an improved version of this system prompt.`,
   });

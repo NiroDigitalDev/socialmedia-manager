@@ -520,7 +520,7 @@ export const arenaRouter = router({
       if (input.rating === "up") {
         return ctx.prisma.labArenaEntry.update({
           where: { id: input.entryId },
-          data: { rating: "up" },
+          data: { rating: "up", ratingTags: [], ratingComment: null },
         });
       }
 
@@ -664,18 +664,24 @@ export const arenaRouter = router({
             .map((e) => e.contentPrompt)
             .filter((p): p is string => p !== null);
 
-          // Rewrite both prompts in parallel
+          // Rewrite both prompts in parallel (anchor against originals to prevent drift)
           const [refinedOutline, refinedImage] = await Promise.all([
-            refineOutlinePrompt(
-              previousOutlinePrompt,
-              { keepContent: learnings.keepContent, avoidContent: learnings.avoidContent },
-              positiveOutlines,
-            ),
-            refineImagePrompt(
-              previousImagePrompt,
-              { keepStyle: learnings.keepStyle, avoidStyle: learnings.avoidStyle },
-              positivePrompts,
-            ),
+            withRetry(() =>
+              refineOutlinePrompt(
+                previousOutlinePrompt,
+                { keepContent: learnings.keepContent, avoidContent: learnings.avoidContent },
+                positiveOutlines,
+                PROMPTS.outlines(count),
+              )
+            ).catch(() => previousOutlinePrompt),
+            withRetry(() =>
+              refineImagePrompt(
+                previousImagePrompt,
+                { keepStyle: learnings.keepStyle, avoidStyle: learnings.avoidStyle },
+                positivePrompts,
+                PROMPTS.images,
+              )
+            ).catch(() => previousImagePrompt),
           ]);
 
           refinedPromptsMap[styleId] = {
@@ -752,9 +758,8 @@ export const arenaRouter = router({
             const stylePrompt = style?.promptText ?? "";
 
             const refinedOutline = refinedPromptsMap[styleId].refinedOutlinePrompt;
-            const outlinePromptParts = [
+            const outlineUserPrompt = [
               arena.sourceText,
-              refinedOutline,
               stylePrompt &&
                 `Visual style direction: ${stylePrompt}. Design the outline to work well with this aesthetic.`,
             ]
@@ -762,7 +767,7 @@ export const arenaRouter = router({
               .join("\n\n");
 
             const outlines = await withRetry(() =>
-              aiGenerateOutlines(outlinePromptParts, count)
+              aiGenerateOutlines(outlineUserPrompt, count, refinedOutline)
             );
 
             // Generate images for each entry

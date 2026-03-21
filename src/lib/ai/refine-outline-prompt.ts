@@ -10,6 +10,7 @@ export async function refineOutlinePrompt(
   currentPrompt: string,
   contentLearnings: { keepContent: string[]; avoidContent: string[] },
   positiveOutlines: OutlineContent[],
+  originalBasePrompt?: string,
 ): Promise<string> {
   const positiveExamples =
     positiveOutlines.length > 0
@@ -21,6 +22,10 @@ export async function refineOutlinePrompt(
           .join("\n")}`
       : "";
 
+  const anchorSection = originalBasePrompt
+    ? `\n\nOriginal base prompt (for reference — do not drift too far from its core intent):\n"""\n${originalBasePrompt}\n"""`
+    : "";
+
   const { text } = await generateText({
     model: textModel,
     system: `You are a prompt engineer specializing in content design prompts. Your job is to conservatively evolve a system prompt based on user feedback.
@@ -30,6 +35,8 @@ Rules:
 - Integrate the feedback naturally into the prompt — do NOT append it as a separate "learnings" section
 - Remove or rephrase anything that contradicts the feedback
 - If positive examples are provided, subtly steer the prompt toward those patterns
+- If an original base prompt is provided, stay anchored to its core intent — refine, don't replace
+- Keep the output prompt concise — no longer than ~500 words
 - Return ONLY the new prompt text, no explanation or commentary`,
     prompt: `Current outline system prompt:
 """
@@ -38,7 +45,7 @@ ${currentPrompt}
 
 User feedback:
 - Content that worked well: ${contentLearnings.keepContent.join(", ") || "none specified"}
-- Content to avoid: ${contentLearnings.avoidContent.join(", ") || "none specified"}${positiveExamples}
+- Content to avoid: ${contentLearnings.avoidContent.join(", ") || "none specified"}${positiveExamples}${anchorSection}
 
 Write an improved version of this system prompt.`,
   });

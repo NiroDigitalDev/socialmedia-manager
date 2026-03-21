@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   ThumbsUpIcon,
-  StarIcon,
   DownloadIcon,
   ImageIcon,
 } from "lucide-react";
@@ -192,11 +191,7 @@ export function WinnersGallery({
 
                 {/* Rating icon */}
                 <div className="absolute bottom-2 right-2 z-10">
-                  {isSuper ? (
-                    <StarIcon className="size-4 fill-amber-500 text-amber-500" />
-                  ) : (
-                    <ThumbsUpIcon className="size-4 text-emerald-500" />
-                  )}
+                  <ThumbsUpIcon className="size-4 text-emerald-500" />
                 </div>
 
                 {/* Exported indicator */}
