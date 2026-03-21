@@ -20,4 +20,5 @@ export type { ArenaCaptionResult, ArenaCaptionDeps } from "./generate-arena-capt
 
 export { analyzeFeedback } from "./analyze-feedback";
 export type { StyleLearnings } from "./analyze-feedback";
-export { refineStylePrompt } from "./refine-style";
+export { refineImagePrompt } from "./refine-style";
+export { refineOutlinePrompt } from "./refine-outline-prompt";
