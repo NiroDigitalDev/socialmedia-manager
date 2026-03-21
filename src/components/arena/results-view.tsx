@@ -33,8 +33,6 @@ interface ArenaEntry {
   imageStyleId: string;
   r2Key: string | null;
   rating: string | null;
-  contentScore: number | null;
-  styleScore: number | null;
   ratingTags: string[];
   exportedPostId: string | null;
   captions: unknown;

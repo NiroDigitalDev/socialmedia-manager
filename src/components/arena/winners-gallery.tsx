@@ -62,9 +62,9 @@ export function WinnersGallery({
 }: WinnersGalleryProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Filter to only up + super entries
+  // Filter to only approved entries
   const winners = useMemo(
-    () => entries.filter((e) => e.rating === "up" || e.rating === "super"),
+    () => entries.filter((e) => e.rating === "up"),
     [entries],
   );
 
@@ -145,7 +145,6 @@ export function WinnersGallery({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {winners.map((entry) => {
           const isSelected = selectedIds.has(entry.id);
-          const isSuper = entry.rating === "super";
           const captions = parseCaptions(entry.captions);
           const roundNum = roundNumberMap[entry.roundId] ?? "?";
           const styleName = styleNames[entry.imageStyleId] ?? "Unknown";
@@ -161,10 +160,9 @@ export function WinnersGallery({
                 onClick={() => toggleSelection(entry.id)}
                 className={cn(
                   "group relative w-full overflow-hidden rounded-lg border transition-all",
-                  isSuper && "ring-2 ring-amber-500",
                   isSelected &&
                     "border-primary ring-2 ring-primary/50",
-                  !isSelected && !isSuper && "border-border/50",
+                  !isSelected && "border-border/50",
                 )}
               >
                 {/* Checkbox overlay */}
