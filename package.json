@@ -5,7 +5,7 @@
   "packageManager": "bun@1.2.16",
   "scripts": {
     "preinstall": "node -e \"if(!process.env.BUN_INSTALL&&!process.argv[1]?.includes('bun'))throw new Error('Use bun install')\"",
-    "dev": "next dev",
+    "dev": "next dev --port 4000",
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint"
