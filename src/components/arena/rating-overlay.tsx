@@ -3,25 +3,39 @@
 import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { StarIcon, XIcon } from "lucide-react";
+import { XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Tag definitions ──────────────────────────────────────────────
 
 const CONTENT_TAGS = [
   "bad composition",
-  "cluttered",
+  "cluttered / too much text",
   "confusing layout",
-  "wrong message",
-];
+  "wrong message / off-topic",
+  "boring / generic",
+  "text too small to read",
+  "missing key information",
+  "awkward text placement",
+] as const;
+
 const STYLE_TAGS = [
-  "wrong style",
+  "wrong style / doesn't match",
   "ugly colors",
   "off-brand",
-  "bad text/typography",
-  "low quality",
-];
-const BOTH_TAGS = ["too busy"];
+  "bad typography",
+  "low quality / blurry",
+  "too dark / too bright",
+  "colors clash",
+  "feels outdated",
+  "too generic / stock-photo feel",
+] as const;
+
+const BOTH_TAGS = [
+  "too busy",
+  "doesn't feel Instagram-ready",
+  "would never post this",
+] as const;
 
 const ALL_REJECT_TAGS = [
   { group: "Content", tags: CONTENT_TAGS },
@@ -33,53 +47,8 @@ const ALL_REJECT_TAGS = [
 
 export interface RatingOverlayProps {
   mode: "approve" | "reject";
-  onConfirm: (data: {
-    contentScore?: number;
-    styleScore?: number;
-    tags?: string[];
-    comment?: string;
-  }) => void;
+  onConfirm: (data: { tags?: string[]; comment?: string }) => void;
   onCancel: () => void;
-}
-
-// ── Star Row ─────────────────────────────────────────────────────
-
-function StarRow({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="w-20 text-sm font-medium text-muted-foreground">
-        {label}
-      </span>
-      <div className="flex gap-1">
-        {[1, 2, 3, 4, 5].map((star) => (
-          <button
-            key={star}
-            type="button"
-            onClick={() => onChange(star)}
-            className="rounded p-0.5 transition-colors hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={`${label} ${star} star${star > 1 ? "s" : ""}`}
-          >
-            <StarIcon
-              className={cn(
-                "size-7 transition-colors",
-                star <= value
-                  ? "fill-amber-400 text-amber-400"
-                  : "fill-none text-muted-foreground/40",
-              )}
-            />
-          </button>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 // ── Approve Panel ────────────────────────────────────────────────
@@ -91,27 +60,19 @@ function ApprovePanel({
   onConfirm: RatingOverlayProps["onConfirm"];
   onCancel: () => void;
 }) {
-  const [contentScore, setContentScore] = useState(0);
-  const [styleScore, setStyleScore] = useState(0);
-
-  const canConfirm = contentScore > 0 && styleScore > 0;
-
   const handleConfirm = useCallback(() => {
-    if (!canConfirm) return;
-    onConfirm({ contentScore, styleScore });
-  }, [canConfirm, contentScore, styleScore, onConfirm]);
+    onConfirm({});
+  }, [onConfirm]);
 
-  // Keyboard: 1-5 for content, Shift+1-5 for style, Enter confirms
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      // Ignore if typing in an input
       if (
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement
       )
         return;
 
-      if (e.key === "Enter" && canConfirm) {
+      if (e.key === "Enter") {
         e.preventDefault();
         handleConfirm();
         return;
@@ -122,29 +83,20 @@ function ApprovePanel({
         onCancel();
         return;
       }
-
-      const num = parseInt(e.key, 10);
-      if (num >= 1 && num <= 5) {
-        e.preventDefault();
-        if (e.shiftKey) {
-          setStyleScore(num);
-        } else {
-          setContentScore(num);
-        }
-      }
     }
 
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [canConfirm, handleConfirm, onCancel]);
+  }, [handleConfirm, onCancel]);
 
   return (
     <div className="space-y-5">
-      <h3 className="text-center text-lg font-semibold">Rate this image</h3>
-      <StarRow label="Content" value={contentScore} onChange={setContentScore} />
-      <StarRow label="Style" value={styleScore} onChange={setStyleScore} />
+      <h3 className="text-center text-lg font-semibold">Good to post?</h3>
+      <p className="text-center text-sm text-muted-foreground">
+        This image will be marked as publishable.
+      </p>
       <p className="text-center text-xs text-muted-foreground">
-        Keys: 1-5 content, Shift+1-5 style, Enter confirm, Esc cancel
+        Enter confirm, Esc cancel
       </p>
       <div className="flex gap-3">
         <Button variant="ghost" className="flex-1" onClick={onCancel}>
@@ -152,7 +104,6 @@ function ApprovePanel({
         </Button>
         <Button
           className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-          disabled={!canConfirm}
           onClick={handleConfirm}
         >
           Confirm
@@ -187,7 +138,6 @@ function RejectPanel({
     });
   }, [selectedTags, comment, onConfirm]);
 
-  // Keyboard: Enter confirms, Esc cancels
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (
@@ -263,11 +213,7 @@ function RejectPanel({
         <Button variant="ghost" className="flex-1" onClick={onCancel}>
           Cancel
         </Button>
-        <Button
-          variant="destructive"
-          className="flex-1"
-          onClick={handleConfirm}
-        >
+        <Button variant="destructive" className="flex-1" onClick={handleConfirm}>
           Confirm
         </Button>
       </div>

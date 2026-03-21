@@ -9,7 +9,6 @@ import { RatingOverlay } from "@/components/arena/rating-overlay";
 import {
   XIcon,
   CheckIcon,
-  StarIcon,
   Loader2Icon,
   PartyPopperIcon,
 } from "lucide-react";
@@ -79,34 +78,15 @@ export function SwipeView({
     setOverlayMode("approve");
   }, []);
 
-  const handleSuper = useCallback(() => {
-    if (!currentEntry) return;
-    setRatedIds((prev) => new Set(prev).add(currentEntry.id));
-    rateEntry.mutate(
-      { entryId: currentEntry.id, rating: "super" },
-      { onSettled: advanceToNext },
-    );
-  }, [currentEntry, rateEntry, advanceToNext]);
-
   const handleOverlayConfirm = useCallback(
-    (data: {
-      contentScore?: number;
-      styleScore?: number;
-      tags?: string[];
-      comment?: string;
-    }) => {
+    (data: { tags?: string[]; comment?: string }) => {
       if (!currentEntry) return;
 
       setRatedIds((prev) => new Set(prev).add(currentEntry.id));
 
       if (overlayMode === "approve") {
         rateEntry.mutate(
-          {
-            entryId: currentEntry.id,
-            rating: "up",
-            contentScore: data.contentScore,
-            styleScore: data.styleScore,
-          },
+          { entryId: currentEntry.id, rating: "up" },
           { onSettled: advanceToNext },
         );
       } else {
@@ -151,16 +131,12 @@ export function SwipeView({
           e.preventDefault();
           handleApprove();
           break;
-        case "ArrowUp":
-          e.preventDefault();
-          handleSuper();
-          break;
       }
     }
 
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [overlayMode, isComplete, currentEntry, handleReject, handleApprove, handleSuper]);
+  }, [overlayMode, isComplete, currentEntry, handleReject, handleApprove]);
 
   // ── Loading state ────────────────────────────────────────────
 
@@ -251,27 +227,11 @@ export function SwipeView({
         >
           <CheckIcon className="size-7" />
         </button>
-
-        {/* Super */}
-        <button
-          type="button"
-          onClick={handleSuper}
-          disabled={rateEntry.isPending}
-          className={cn(
-            "flex size-16 items-center justify-center rounded-full border-2 border-amber-500/40 bg-amber-500/10 text-amber-400 transition-all",
-            "hover:scale-110 hover:border-amber-500 hover:bg-amber-500/20",
-            "focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500",
-            "disabled:opacity-50 disabled:hover:scale-100",
-          )}
-          aria-label="Super"
-        >
-          <StarIcon className="size-7" />
-        </button>
       </div>
 
       {/* Keyboard hint */}
       <p className="pb-3 text-center text-xs text-muted-foreground/60">
-        Arrow keys: Left reject, Right approve, Up super
+        Arrow keys: Left reject, Right approve
       </p>
 
       {/* Rating overlay */}
