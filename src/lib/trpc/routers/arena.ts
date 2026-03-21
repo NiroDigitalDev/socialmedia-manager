@@ -6,7 +6,8 @@ import {
   generateOutlines as aiGenerateOutlines,
   generateImageFromPrompt,
   analyzeFeedback,
-  refineStylePrompt,
+  refineImagePrompt,
+  refineOutlinePrompt,
   generateArenaCaption,
   PROMPTS,
   type ModelKey,
@@ -172,7 +173,6 @@ export const arenaRouter = router({
       return arenas.map((arena) => {
         const totalEntries = arena.entries.length;
         const upCount = arena.entries.filter((e) => e.rating === "up").length;
-        const superCount = arena.entries.filter((e) => e.rating === "super").length;
         const generatingCount = arena.entries.filter((e) => e.status === "generating").length;
 
         const { entries: _entries, ...rest } = arena;
@@ -181,7 +181,6 @@ export const arenaRouter = router({
           entryStats: {
             total: totalEntries,
             up: upCount,
-            super: superCount,
             generating: generatingCount,
           },
         };
@@ -499,15 +498,12 @@ export const arenaRouter = router({
     .input(
       z.object({
         entryId: z.string(),
-        rating: z.enum(["up", "down", "super"]),
-        contentScore: z.number().min(1).max(5).optional(),
-        styleScore: z.number().min(1).max(5).optional(),
+        rating: z.enum(["up", "down"]),
         tags: z.array(z.string()).optional(),
         comment: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Fetch entry and join to arena for org verification + aspectRatio
       const entry = await ctx.prisma.labArenaEntry.findUnique({
         where: { id: input.entryId },
         include: { arena: true },
@@ -522,56 +518,9 @@ export const arenaRouter = router({
       }
 
       if (input.rating === "up") {
-        // Require contentScore and styleScore
-        if (input.contentScore == null || input.styleScore == null) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "contentScore and styleScore are required for an 'up' rating",
-          });
-        }
-
         return ctx.prisma.labArenaEntry.update({
           where: { id: input.entryId },
-          data: {
-            rating: "up",
-            contentScore: input.contentScore,
-            styleScore: input.styleScore,
-          },
-        });
-      }
-
-      if (input.rating === "super") {
-        // Export to gallery: create GeneratedPost + GeneratedImage
-        const generatedPost = await ctx.prisma.generatedPost.create({
-          data: {
-            prompt: entry.contentPrompt ?? "",
-            format: "static",
-            aspectRatio: entry.arena.aspectRatio,
-            model: "arena-export",
-            status: "completed",
-            platform: "instagram",
-            orgId: ctx.orgId,
-            projectId: entry.arena.projectId ?? null,
-          },
-        });
-
-        await ctx.prisma.generatedImage.create({
-          data: {
-            postId: generatedPost.id,
-            slideNumber: 1,
-            r2Key: entry.r2Key,
-            mimeType: entry.mimeType ?? "image/png",
-          },
-        });
-
-        return ctx.prisma.labArenaEntry.update({
-          where: { id: input.entryId },
-          data: {
-            rating: "super",
-            contentScore: 5,
-            styleScore: 5,
-            exportedPostId: generatedPost.id,
-          },
+          data: { rating: "up" },
         });
       }
 
@@ -637,8 +586,6 @@ export const arenaRouter = router({
           },
           select: {
             rating: true,
-            contentScore: true,
-            styleScore: true,
             ratingTags: true,
             ratingComment: true,
             contentPrompt: true,
@@ -652,20 +599,22 @@ export const arenaRouter = router({
             select: { name: true, promptText: true },
           });
 
-          const feedbackEntries = allEntries.map((e) => ({
-            rating: e.rating as "up" | "down" | "super",
-            contentScore: e.contentScore,
-            styleScore: e.styleScore,
-            ratingTags: e.ratingTags,
-            ratingComment: e.ratingComment,
-            contentPrompt: e.contentPrompt,
-            outlineContent: e.outlineContent,
-          }));
+          const feedbackEntries = allEntries
+            .filter((e): e is typeof e & { rating: "up" | "down" } =>
+              e.rating === "up" || e.rating === "down"
+            )
+            .map((e) => ({
+              rating: e.rating,
+              ratingTags: e.ratingTags,
+              ratingComment: e.ratingComment,
+              contentPrompt: e.contentPrompt,
+              outlineContent: e.outlineContent,
+            }));
 
           learningsMap[styleId] = await analyzeFeedback(
             style?.name ?? "Unknown",
             style?.promptText ?? "",
-            feedbackEntries
+            feedbackEntries,
           );
         } else {
           learningsMap[styleId] = {
@@ -676,6 +625,72 @@ export const arenaRouter = router({
             summary: "No rated entries yet.",
           };
         }
+      }
+
+      // 2b. Refine prompts for each style (parallel)
+      interface RefinedPrompts {
+        refinedOutlinePrompt: string;
+        refinedImagePrompt: string;
+      }
+      const refinedPromptsMap: Record<string, RefinedPrompts> = {};
+
+      await Promise.all(
+        input.styles.map(async ({ styleId, count }) => {
+          const learnings = learningsMap[styleId];
+
+          // Get previous round's refined prompts (or defaults)
+          const prevLearnings = previousRound.learnings as Record<string, Record<string, unknown>> | null;
+          const prevStyleLearnings = prevLearnings?.[styleId];
+          const previousOutlinePrompt =
+            (prevStyleLearnings?.refinedOutlinePrompt as string) ?? PROMPTS.outlines(count);
+          const previousImagePrompt =
+            (prevStyleLearnings?.refinedImagePrompt as string) ?? PROMPTS.images;
+
+          // Fetch positive examples (all thumbs-up across all rounds)
+          const positiveEntries = await ctx.prisma.labArenaEntry.findMany({
+            where: {
+              arenaId: input.arenaId,
+              imageStyleId: styleId,
+              rating: "up",
+            },
+            select: { contentPrompt: true, outlineContent: true },
+          });
+
+          const positiveOutlines = positiveEntries
+            .map((e) => e.outlineContent as { overallTheme: string; slides: Array<{ title: string; description: string; layoutNotes?: string }> } | null)
+            .filter((o): o is NonNullable<typeof o> => o !== null);
+
+          const positivePrompts = positiveEntries
+            .map((e) => e.contentPrompt)
+            .filter((p): p is string => p !== null);
+
+          // Rewrite both prompts in parallel
+          const [refinedOutline, refinedImage] = await Promise.all([
+            refineOutlinePrompt(
+              previousOutlinePrompt,
+              { keepContent: learnings.keepContent, avoidContent: learnings.avoidContent },
+              positiveOutlines,
+            ),
+            refineImagePrompt(
+              previousImagePrompt,
+              { keepStyle: learnings.keepStyle, avoidStyle: learnings.avoidStyle },
+              positivePrompts,
+            ),
+          ]);
+
+          refinedPromptsMap[styleId] = {
+            refinedOutlinePrompt: refinedOutline,
+            refinedImagePrompt: refinedImage,
+          };
+        }),
+      );
+
+      // Merge refined prompts into learningsMap for storage
+      for (const { styleId } of input.styles) {
+        (learningsMap[styleId] as Record<string, unknown>).refinedOutlinePrompt =
+          refinedPromptsMap[styleId].refinedOutlinePrompt;
+        (learningsMap[styleId] as Record<string, unknown>).refinedImagePrompt =
+          refinedPromptsMap[styleId].refinedImagePrompt;
       }
 
       // 3. Create new round
@@ -736,31 +751,12 @@ export const arenaRouter = router({
             });
             const stylePrompt = style?.promptText ?? "";
 
-            // Collect super-rated entry prompts for gold standard references
-            const superEntries = await ctx.prisma.labArenaEntry.findMany({
-              where: {
-                arenaId: input.arenaId,
-                imageStyleId: styleId,
-                rating: "super",
-                contentPrompt: { not: null },
-              },
-              select: { contentPrompt: true, outlineContent: true },
-            });
-            const superPrompts = superEntries
-              .map((e) => e.contentPrompt)
-              .filter((p): p is string => p !== null);
-
-            // Build outline prompt with content learnings injected
+            const refinedOutline = refinedPromptsMap[styleId].refinedOutlinePrompt;
             const outlinePromptParts = [
               arena.sourceText,
+              refinedOutline,
               stylePrompt &&
                 `Visual style direction: ${stylePrompt}. Design the outline to work well with this aesthetic.`,
-              learnings.keepContent.length > 0 &&
-                `Content learnings — Users liked: ${learnings.keepContent.join(", ")}`,
-              learnings.avoidContent.length > 0 &&
-                `Content learnings — Users disliked: ${learnings.avoidContent.join(", ")}`,
-              superPrompts.length > 0 &&
-                `Gold standard examples (replicate these patterns):\n${superPrompts.join("\n")}`,
             ]
               .filter(Boolean)
               .join("\n\n");
@@ -794,14 +790,10 @@ export const arenaRouter = router({
                     })
                     .join("\n");
 
-                  // Build image prompt with style learnings injected
+                  const refinedImage = refinedPromptsMap[styleId].refinedImagePrompt;
                   const promptParts = [
-                    PROMPTS.images,
+                    refinedImage,
                     stylePrompt && `Visual style: ${stylePrompt}`,
-                    learnings.keepStyle.length > 0 &&
-                      `Style learnings — Users liked: ${learnings.keepStyle.join(", ")}`,
-                    learnings.avoidStyle.length > 0 &&
-                      `Style learnings — Users disliked: ${learnings.avoidStyle.join(", ")}`,
                     overallTheme && `Theme: ${overallTheme}`,
                     slidesText && `Outline:\n${slidesText}`,
                     brandContext.text && `Brand context: ${brandContext.text}`,
@@ -839,7 +831,7 @@ export const arenaRouter = router({
                       r2Key,
                       mimeType: imgResult.mimeType,
                       outlineContent: outline as object,
-                      systemPrompt: PROMPTS.images,
+                      systemPrompt: refinedImage,
                       contentPrompt: imagePrompt,
                     },
                   });
@@ -963,11 +955,8 @@ export const arenaRouter = router({
         const styleEntries = styleGroups[styleId];
         const up = styleEntries.filter((e) => e.rating === "up").length;
         const down = styleEntries.filter((e) => e.rating === "down").length;
-        const superCount = styleEntries.filter(
-          (e) => e.rating === "super"
-        ).length;
         const total = styleEntries.length;
-        const rated = up + down + superCount;
+        const rated = up + down;
 
         return {
           styleId,
@@ -975,8 +964,7 @@ export const arenaRouter = router({
           total,
           up,
           down,
-          super: superCount,
-          ratio: rated > 0 ? (up + superCount) / rated : 0,
+          ratio: rated > 0 ? up / rated : 0,
           entries: styleEntries,
         };
       });
@@ -1015,11 +1003,11 @@ export const arenaRouter = router({
       const exported: string[] = [];
 
       for (const entry of entries) {
-        // Skip if already exported (via super rating)
+        // Skip if already exported
         if (entry.exportedPostId) continue;
 
-        // Only export up or super rated entries
-        if (entry.rating !== "up" && entry.rating !== "super") continue;
+        // Only export up-rated entries
+        if (entry.rating !== "up") continue;
 
         // Determine description: use selected caption if available, else contentPrompt
         let description: string | null = null;
@@ -1206,62 +1194,35 @@ export const arenaRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Arena not found" });
       }
 
-      // Fetch the original style
       const originalStyle = await ctx.prisma.style.findUnique({
         where: { id: input.styleId },
       });
 
       if (!originalStyle) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Style not found",
-        });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Style not found" });
       }
 
-      // Collect learnings for this style across all rounds
-      const rounds = await ctx.prisma.labArenaRound.findMany({
+      // Get the latest round's refined image prompt for this style
+      const latestRound = await ctx.prisma.labArenaRound.findFirst({
         where: { arenaId: input.arenaId },
+        orderBy: { roundNumber: "desc" },
         select: { learnings: true },
-        orderBy: { roundNumber: "asc" },
       });
 
-      // Merge learnings from all rounds for this style
-      const mergedLearnings: StyleLearnings = {
-        keepContent: [],
-        keepStyle: [],
-        avoidContent: [],
-        avoidStyle: [],
-        summary: "",
-      };
+      const roundLearnings = latestRound?.learnings as Record<
+        string,
+        Record<string, unknown>
+      > | null;
+      const refinedImagePrompt = roundLearnings?.[input.styleId]
+        ?.refinedImagePrompt as string | undefined;
 
-      const summaries: string[] = [];
+      // Use the refined prompt directly, or fall back to original if no refinement exists
+      const newPromptText = refinedImagePrompt ?? originalStyle.promptText;
 
-      for (const round of rounds) {
-        if (!round.learnings) continue;
-        const roundLearnings = round.learnings as Record<string, StyleLearnings>;
-        const styleLearnings = roundLearnings[input.styleId];
-        if (!styleLearnings) continue;
-
-        mergedLearnings.keepContent.push(...(styleLearnings.keepContent ?? []));
-        mergedLearnings.keepStyle.push(...(styleLearnings.keepStyle ?? []));
-        mergedLearnings.avoidContent.push(...(styleLearnings.avoidContent ?? []));
-        mergedLearnings.avoidStyle.push(...(styleLearnings.avoidStyle ?? []));
-        if (styleLearnings.summary) summaries.push(styleLearnings.summary);
-      }
-
-      mergedLearnings.summary = summaries.join(" ");
-
-      // Refine the style prompt using accumulated learnings
-      const refinedPrompt = await refineStylePrompt(
-        originalStyle.promptText,
-        mergedLearnings,
-      );
-
-      // Create new style
       const newStyle = await ctx.prisma.style.create({
         data: {
           name: input.name ?? `${originalStyle.name} (Arena-refined)`,
-          promptText: refinedPrompt,
+          promptText: newPromptText,
           kind: "image",
           parentStyleIds: [input.styleId],
           orgId: ctx.orgId,
