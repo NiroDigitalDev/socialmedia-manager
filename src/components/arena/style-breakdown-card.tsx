@@ -14,7 +14,6 @@ import {
 import {
   ThumbsUpIcon,
   ThumbsDownIcon,
-  StarIcon,
   ChevronDownIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -27,8 +26,6 @@ interface BreakdownEntry {
   id: string;
   r2Key: string | null;
   rating: string | null;
-  contentScore: number | null;
-  styleScore: number | null;
   exportedPostId: string | null;
   captions: unknown;
 }
@@ -65,20 +62,13 @@ export function StyleBreakdownCard({
 }: StyleBreakdownCardProps) {
   const [learningsOpen, setLearningsOpen] = useState(false);
 
-  // Tally ratings
   const upCount = entries.filter((e) => e.rating === "up").length;
-  const superCount = entries.filter((e) => e.rating === "super").length;
   const downCount = entries.filter((e) => e.rating === "down").length;
-  const ratedTotal = upCount + superCount + downCount;
+  const ratedTotal = upCount + downCount;
 
-  // Winners: up + super entries with images
-  const winners = entries.filter(
-    (e) => (e.rating === "up" || e.rating === "super") && e.r2Key,
-  );
+  const winners = entries.filter((e) => e.rating === "up" && e.r2Key);
 
-  // Ratio bar widths (percentages)
   const upPct = ratedTotal > 0 ? (upCount / ratedTotal) * 100 : 0;
-  const superPct = ratedTotal > 0 ? (superCount / ratedTotal) * 100 : 0;
   const downPct = ratedTotal > 0 ? (downCount / ratedTotal) * 100 : 0;
 
   const hasLearnings =
@@ -115,12 +105,6 @@ export function StyleBreakdownCard({
         {ratedTotal > 0 && (
           <div className="space-y-1.5">
             <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
-              {superPct > 0 && (
-                <div
-                  className="bg-amber-500 transition-all"
-                  style={{ width: `${superPct}%` }}
-                />
-              )}
               {upPct > 0 && (
                 <div
                   className="bg-emerald-500 transition-all"
@@ -142,10 +126,6 @@ export function StyleBreakdownCard({
                 {upCount} liked
               </span>
               <span className="flex items-center gap-1">
-                <StarIcon className="size-3 text-amber-500" />
-                {superCount} gallery
-              </span>
-              <span className="flex items-center gap-1">
                 <ThumbsDownIcon className="size-3 text-red-500" />
                 {downCount} rejected
               </span>
@@ -159,10 +139,7 @@ export function StyleBreakdownCard({
             {winners.map((entry) => (
               <div
                 key={entry.id}
-                className={cn(
-                  "relative aspect-square overflow-hidden rounded-md",
-                  entry.rating === "super" && "ring-2 ring-amber-500",
-                )}
+                className="relative aspect-square overflow-hidden rounded-md"
               >
                 <img
                   src={`${R2_PUBLIC_URL}/${entry.r2Key}`}
@@ -170,9 +147,6 @@ export function StyleBreakdownCard({
                   className="h-full w-full object-cover"
                   loading="lazy"
                 />
-                {entry.rating === "super" && (
-                  <StarIcon className="absolute right-0.5 top-0.5 size-3 fill-amber-500 text-amber-500" />
-                )}
               </div>
             ))}
           </div>
