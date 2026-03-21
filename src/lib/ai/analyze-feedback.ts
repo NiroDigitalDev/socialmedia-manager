@@ -12,10 +12,8 @@ const learningsSchema = z.object({
 
 export type StyleLearnings = z.infer<typeof learningsSchema>;
 
-interface FeedbackEntry {
-  rating: "up" | "down" | "super";
-  contentScore?: number | null;
-  styleScore?: number | null;
+export interface FeedbackEntry {
+  rating: "up" | "down";
   ratingTags: string[];
   ratingComment?: string | null;
   contentPrompt?: string | null;
@@ -27,20 +25,26 @@ export async function analyzeFeedback(
   stylePrompt: string,
   entries: FeedbackEntry[],
 ): Promise<StyleLearnings> {
-  const superEntries = entries.filter(e => e.rating === "super");
-  const upEntries = entries.filter(e => e.rating === "up");
-  const downEntries = entries.filter(e => e.rating === "down");
+  const upEntries = entries.filter((e) => e.rating === "up");
+  const downEntries = entries.filter((e) => e.rating === "down");
 
   const feedbackSummary = [
     `Style: "${styleName}" — ${stylePrompt}`,
     `Total entries: ${entries.length}`,
-    `Super (gallery adds, gold standard): ${superEntries.length}`,
-    superEntries.length > 0 && `Gold standard prompts:\n${superEntries.map(e => `- ${e.contentPrompt?.slice(0, 200)}`).join("\n")}`,
-    `Liked: ${upEntries.length}`,
-    upEntries.length > 0 && `Liked entries (content/style scores):\n${upEntries.map(e => `- Content: ${e.contentScore}/5, Style: ${e.styleScore}/5 | Prompt: ${e.contentPrompt?.slice(0, 100)}`).join("\n")}`,
+    `Approved (good to post): ${upEntries.length}`,
+    upEntries.length > 0 &&
+      `Approved entry prompts:\n${upEntries.map((e) => `- ${e.contentPrompt?.slice(0, 200)}`).join("\n")}`,
     `Rejected: ${downEntries.length}`,
-    downEntries.length > 0 && `Rejection reasons:\n${downEntries.map(e => `- Tags: [${e.ratingTags.join(", ")}]${e.ratingComment ? ` Comment: ${e.ratingComment}` : ""}`).join("\n")}`,
-  ].filter(Boolean).join("\n\n");
+    downEntries.length > 0 &&
+      `Rejection details:\n${downEntries
+        .map(
+          (e) =>
+            `- Tags: [${e.ratingTags.join(", ")}]${e.ratingComment ? ` Comment: ${e.ratingComment}` : ""}`,
+        )
+        .join("\n")}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   const { output } = await generateText({
     model: textModel,
@@ -48,15 +52,26 @@ export async function analyzeFeedback(
 - CONTENT learnings: what layouts, concepts, compositions, and messaging approaches worked or didn't
 - STYLE learnings: what visual treatments, colors, textures, and aesthetic choices worked or didn't
 
-Super-rated entries (gallery adds) are the gold standard — weight them highest.
-Thumbs-up entries with high content + low style scores mean the concept was good but visual execution needs work.
-Thumbs-up entries with low content + high style scores mean the visuals were great but the concept needs rethinking.
-Thumbs-down tags indicate specific problems: content tags (bad composition, cluttered, confusing layout, wrong message) vs style tags (wrong style, ugly colors, off-brand, bad text/typography, low quality).
+Thumbs-up entries are positive examples — learn from what made them publishable.
 
+Thumbs-down entries have rejection tags grouped into categories:
+- Content tags (bad composition, cluttered / too much text, confusing layout, wrong message / off-topic, boring / generic, text too small to read, missing key information, awkward text placement) → extract CONTENT learnings
+- Style tags (wrong style / doesn't match, ugly colors, off-brand, bad typography, low quality / blurry, too dark / too bright, colors clash, feels outdated, too generic / stock-photo feel) → extract STYLE learnings
+- Both tags (too busy, doesn't feel Instagram-ready, would never post this) → extract both CONTENT and STYLE learnings
+
+Comments may contain additional context for either dimension.
 Be specific and actionable in your learnings.`,
     prompt: feedbackSummary,
     output: Output.object({ schema: learningsSchema }),
   });
 
-  return output ?? { keepContent: [], keepStyle: [], avoidContent: [], avoidStyle: [], summary: "No learnings generated." };
+  return (
+    output ?? {
+      keepContent: [],
+      keepStyle: [],
+      avoidContent: [],
+      avoidStyle: [],
+      summary: "No learnings generated.",
+    }
+  );
 }
