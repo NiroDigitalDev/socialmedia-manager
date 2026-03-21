@@ -381,7 +381,6 @@ export default function LabPage({
                         <p className="text-xs text-muted-foreground">
                           {arena.entryStats.total} images
                           {arena.entryStats.up > 0 && ` · ${arena.entryStats.up} liked`}
-                          {arena.entryStats.super > 0 && ` · ${arena.entryStats.super} gallery`}
                         </p>
                       )}
                     </CardContent>

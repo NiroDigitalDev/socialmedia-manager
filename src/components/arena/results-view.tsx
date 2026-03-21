@@ -151,7 +151,7 @@ export function ResultsView({
   const allWinners = useMemo(
     () =>
       arena.entries.filter(
-        (e) => e.rating === "up" || e.rating === "super",
+        (e) => e.rating === "up",
       ),
     [arena.entries],
   );
