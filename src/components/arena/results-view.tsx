@@ -64,6 +64,7 @@ interface ResultsViewProps {
   onGenerateNextRound: (
     styles: Array<{ styleId: string; count: number }>,
   ) => void;
+  isGeneratingNextRound?: boolean;
   onDone: () => void;
 }
 
@@ -73,6 +74,7 @@ export function ResultsView({
   arena,
   styleNames,
   onGenerateNextRound,
+  isGeneratingNextRound = false,
   onDone,
 }: ResultsViewProps) {
   // Determine latest round
@@ -262,6 +264,7 @@ export function ResultsView({
   }, [arena.id, completeArena, onDone]);
 
   const isBusy =
+    isGeneratingNextRound ||
     generateCaptions.isPending ||
     exportWinners.isPending ||
     saveRefinedStyle.isPending ||
@@ -390,12 +393,12 @@ export function ResultsView({
             onClick={handleGenerateNextRound}
             disabled={isBusy}
           >
-            {generateCaptions.isPending ? (
+            {isGeneratingNextRound ? (
               <Loader2Icon className="mr-1.5 size-4 animate-spin" />
             ) : (
               <SparklesIcon className="mr-1.5 size-4" />
             )}
-            Generate Round {roundNumber + 1}
+            {isGeneratingNextRound ? "Analyzing feedback..." : `Generate Round ${roundNumber + 1}`}
           </Button>
 
           <Button

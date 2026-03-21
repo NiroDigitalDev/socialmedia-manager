@@ -70,11 +70,10 @@ export function useRateEntry() {
   return useMutation({
     mutationFn,
     onSuccess: () => {
+      // Don't invalidate getSwipeQueue — the local ratedIds Set handles filtering.
+      // Invalidating it mid-swipe causes refetch races that can skip entries.
       queryClient.invalidateQueries({
         queryKey: trpc.arena.getArena.queryKey(),
-      });
-      queryClient.invalidateQueries({
-        queryKey: trpc.arena.getSwipeQueue.queryKey(),
       });
       queryClient.invalidateQueries({
         queryKey: trpc.arena.getRoundResults.queryKey(),
@@ -93,6 +92,7 @@ export function useGenerateNextRound() {
   return useMutation({
     mutationFn,
     onSuccess: () => {
+      toast.success("Next round started — generating images...");
       queryClient.invalidateQueries({
         queryKey: trpc.arena.getArena.queryKey(),
       });

@@ -290,6 +290,7 @@ export default function ArenaPage({
           }}
           styleNames={styleNames}
           onGenerateNextRound={handleGenerateNextRound}
+          isGeneratingNextRound={generateNextRound.isPending}
           onDone={handleDone}
         />
       </div>
