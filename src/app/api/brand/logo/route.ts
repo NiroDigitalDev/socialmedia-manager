@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { putStoredImage, deleteStoredImages } from "@/lib/image-storage";
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,22 +18,16 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(bytes);
     const mimeType = file.type || "image/png";
 
-    // Store logo in DB
-    const storedImage = await prisma.storedImage.create({
-      data: {
-        data: buffer,
-        mimeType,
-      },
-    });
+    const storedImage = await putStoredImage(buffer, mimeType);
 
     const logoUrl = `/api/images/${storedImage.id}`;
 
     const existing = await prisma.brandSettings.findFirst();
 
     if (existing) {
-      // Delete old logo image if exists
+      // Delete old logo (R2 object + DB row) if it exists
       if (existing.logoImageId) {
-        await prisma.storedImage.delete({ where: { id: existing.logoImageId } }).catch(() => {});
+        await deleteStoredImages([existing.logoImageId]).catch(() => {});
       }
       await prisma.brandSettings.update({
         where: { id: existing.id },

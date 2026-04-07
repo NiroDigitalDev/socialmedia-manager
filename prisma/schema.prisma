@@ -8,9 +8,12 @@ datasource db {
 }
 
 // Generic image storage for styles, brand logos, etc.
+// During the R2 migration: rows may hold either `key` (R2 object) or
+// legacy `data` (postgres bytea). `data` will be dropped once backfilled.
 model StoredImage {
   id        String   @id @default(cuid())
-  data      Bytes
+  key       String?  @unique
+  data      Bytes?
   mimeType  String   @default("image/png")
   createdAt DateTime @default(now())
 }
@@ -90,7 +93,8 @@ model GeneratedImage {
   postId      String
   post        GeneratedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
   slideNumber Int
-  data        Bytes
+  key         String?       @unique
+  data        Bytes?
   mimeType    String        @default("image/png")
   createdAt   DateTime      @default(now())
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { readImageBytes } from "@/lib/image-storage";
 import JSZip from "jszip";
 
 export async function GET(
@@ -32,9 +33,10 @@ export async function GET(
         );
       }
 
-      return new NextResponse(Buffer.from(image.data), {
+      const { buffer, mimeType } = await readImageBytes(image);
+      return new NextResponse(new Uint8Array(buffer), {
         headers: {
-          "Content-Type": image.mimeType,
+          "Content-Type": mimeType,
           "Content-Disposition": `attachment; filename="post-${id}-slide-${slideNumber}.png"`,
         },
       });
@@ -42,9 +44,10 @@ export async function GET(
 
     // Download all as zip (for carousel or single)
     if (post.images.length === 1) {
-      return new NextResponse(Buffer.from(post.images[0].data), {
+      const { buffer, mimeType } = await readImageBytes(post.images[0]);
+      return new NextResponse(new Uint8Array(buffer), {
         headers: {
-          "Content-Type": post.images[0].mimeType,
+          "Content-Type": mimeType,
           "Content-Disposition": `attachment; filename="post-${id}.png"`,
         },
       });
@@ -54,7 +57,8 @@ export async function GET(
     const zip = new JSZip();
 
     for (const image of post.images) {
-      zip.file(`slide-${image.slideNumber}.png`, Buffer.from(image.data));
+      const { buffer } = await readImageBytes(image);
+      zip.file(`slide-${image.slideNumber}.png`, buffer);
     }
 
     const zipArrayBuffer = await zip.generateAsync({ type: "arraybuffer" });

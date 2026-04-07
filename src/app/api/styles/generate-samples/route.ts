@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { generateImage } from "@/lib/gemini";
+import { putStoredImage } from "@/lib/image-storage";
 
 export const maxDuration = 300;
 
@@ -34,13 +35,11 @@ export async function POST() {
           "1:1"
         );
 
-        // Store the generated image
-        const storedImage = await prisma.storedImage.create({
-          data: {
-            data: Buffer.from(result.base64, "base64"),
-            mimeType: result.mimeType,
-          },
-        });
+        // Store the generated image in R2
+        const storedImage = await putStoredImage(
+          Buffer.from(result.base64, "base64"),
+          result.mimeType
+        );
 
         // Update the style with the sample image
         await prisma.style.update({

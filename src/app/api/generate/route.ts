@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { generateImage, GEMINI_IMAGE_MODELS, ASPECT_RATIOS, type ModelKey, type AspectRatioKey } from "@/lib/gemini";
+import { putGeneratedImage, readImageBytes } from "@/lib/image-storage";
 
 export const maxDuration = 300;
 
@@ -108,9 +109,10 @@ export async function POST(request: NextRequest) {
           where: { id: brand.logoImageId },
         });
         if (logoImage) {
+          const { buffer, mimeType: logoMime } = await readImageBytes(logoImage);
           logoReferenceImages.push({
-            base64: Buffer.from(logoImage.data).toString("base64"),
-            mimeType: logoImage.mimeType,
+            base64: buffer.toString("base64"),
+            mimeType: logoMime,
           });
         }
       }
@@ -188,14 +190,12 @@ export async function POST(request: NextRequest) {
         const slidePrompt = parts.join("\n\n");
         const result = await generateImage(slidePrompt, model, aspectRatio, refs);
 
-        return prisma.generatedImage.create({
-          data: {
-            postId: post.id,
-            slideNumber,
-            data: Buffer.from(result.base64, "base64"),
-            mimeType: result.mimeType,
-          },
-        });
+        return putGeneratedImage(
+          post.id,
+          slideNumber,
+          Buffer.from(result.base64, "base64"),
+          result.mimeType
+        );
       };
 
       try {

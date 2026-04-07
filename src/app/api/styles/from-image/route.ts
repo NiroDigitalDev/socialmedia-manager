@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { geminiText, generateImage } from "@/lib/gemini";
+import { putStoredImage } from "@/lib/image-storage";
 
 export async function POST(request: Request) {
   try {
@@ -17,13 +17,8 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(await imageFile.arrayBuffer());
     const mimeType = imageFile.type || "image/jpeg";
 
-    // Store the reference image in DB
-    const refImage = await prisma.storedImage.create({
-      data: {
-        data: buffer,
-        mimeType,
-      },
-    });
+    // Store the reference image in R2
+    const refImage = await putStoredImage(buffer, mimeType);
 
     // Use Gemini vision to analyze the image and extract a style description
     const base64Image = buffer.toString("base64");
@@ -48,15 +43,10 @@ export async function POST(request: Request) {
       generateImage(cleanedPrompt, "nano-banana-2", "1:1"),
     ]);
 
-    // Store samples in DB
+    // Store samples in R2
     const stored = await Promise.all(
       results.map((img) =>
-        prisma.storedImage.create({
-          data: {
-            data: Buffer.from(img.base64, "base64"),
-            mimeType: img.mimeType,
-          },
-        })
+        putStoredImage(Buffer.from(img.base64, "base64"), img.mimeType)
       )
     );
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { generateImage } from "@/lib/gemini";
+import { putStoredImage } from "@/lib/image-storage";
 
 export async function POST(request: Request) {
   try {
@@ -20,15 +20,10 @@ export async function POST(request: Request) {
       generateImage(promptText, "nano-banana-2", "1:1"),
     ]);
 
-    // Store in DB
+    // Store in R2
     const stored = await Promise.all(
       results.map((img) =>
-        prisma.storedImage.create({
-          data: {
-            data: Buffer.from(img.base64, "base64"),
-            mimeType: img.mimeType,
-          },
-        })
+        putStoredImage(Buffer.from(img.base64, "base64"), img.mimeType)
       )
     );
 

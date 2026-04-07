@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { deleteStoredImages } from "@/lib/image-storage";
 
 export async function GET(
   request: Request,
@@ -41,14 +42,12 @@ export async function DELETE(
       return NextResponse.json({ error: "Style not found" }, { status: 404 });
     }
 
-    // Delete stored images
+    // Delete stored images (R2 objects + DB rows)
     const imageIds = [...style.sampleImageIds];
     if (style.referenceImageId) imageIds.push(style.referenceImageId);
 
     if (imageIds.length > 0) {
-      await prisma.storedImage.deleteMany({
-        where: { id: { in: imageIds } },
-      });
+      await deleteStoredImages(imageIds);
     }
 
     await prisma.style.delete({
