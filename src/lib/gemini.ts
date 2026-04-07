@@ -10,7 +10,7 @@ export const geminiText = {
   async generateContent(prompt: string | ContentPart[]) {
     if (typeof prompt === "string") {
       const { text } = await generateText({
-        model: gateway("google/gemini-2.5-flash"),
+        model: gateway("google/gemini-3-flash-preview"),
         prompt,
       });
       return text ?? "";
@@ -29,7 +29,7 @@ export const geminiText = {
     });
 
     const { text } = await generateText({
-      model: gateway("google/gemini-2.5-flash"),
+      model: gateway("google/gemini-3-flash-preview"),
       messages: [{ role: "user", content }],
     });
     return text ?? "";
