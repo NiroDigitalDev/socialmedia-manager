@@ -1,0 +1,25 @@
+# Railway configuration — checked into source for reproducible deploys.
+# Reference: https://docs.railway.com/reference/config-as-code
+#
+# Bun is the only package manager. Railpack auto-detects Bun from `bun.lock`,
+# but the install/build/start commands below pin the toolchain explicitly so a
+# missing or accidentally added lockfile cannot silently switch builders.
+
+[build]
+builder = "RAILPACK"
+buildCommand = "bun run build"
+watchPatterns = [
+  "src/**",
+  "prisma/**",
+  "public/**",
+  "package.json",
+  "bun.lock",
+  "next.config.ts",
+  "tsconfig.json",
+  "railway.toml",
+]
+
+[deploy]
+startCommand = "bun run start"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
