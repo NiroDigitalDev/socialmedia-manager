@@ -1,18 +1,40 @@
-import { GoogleGenAI } from "@google/genai";
+import { generateText } from "ai";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY!,
+const google = createGoogleGenerativeAI({
+  apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
 });
+
+type ContentPart = { text?: string; inlineData?: { data: string; mimeType: string } };
 
 // Text-only model for content ideas, descriptions, style analysis
 export const geminiText = {
-  async generateContent(prompt: string | Array<{ text?: string; inlineData?: { data: string; mimeType: string } }>) {
-    const contents = typeof prompt === "string" ? prompt : prompt;
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents,
+  async generateContent(prompt: string | ContentPart[]) {
+    if (typeof prompt === "string") {
+      const { text } = await generateText({
+        model: google("gemini-2.5-flash"),
+        prompt,
+      });
+      return text ?? "";
+    }
+
+    // Mixed content (text + images)
+    const content = prompt.map((part) => {
+      if (part.inlineData) {
+        return {
+          type: "image" as const,
+          image: part.inlineData.data,
+          mimeType: part.inlineData.mimeType as string,
+        };
+      }
+      return { type: "text" as const, text: part.text ?? "" };
     });
-    return response.text ?? "";
+
+    const { text } = await generateText({
+      model: google("gemini-2.5-flash"),
+      messages: [{ role: "user", content }],
+    });
+    return text ?? "";
   },
 };
 
@@ -42,45 +64,40 @@ export async function generateImage(
 ): Promise<{ base64: string; mimeType: string }> {
   const modelId = GEMINI_IMAGE_MODELS[modelKey];
 
-  // Build contents: reference images first, then the text prompt
-  const contents: Array<{ text?: string; inlineData?: { data: string; mimeType: string } }> = [];
+  const content: Array<
+    | { type: "image"; image: string; mimeType: string }
+    | { type: "text"; text: string }
+  > = [];
 
   if (referenceImages && referenceImages.length > 0) {
     for (const img of referenceImages) {
-      contents.push({
-        inlineData: { data: img.base64, mimeType: img.mimeType },
-      });
+      content.push({ type: "image", image: img.base64, mimeType: img.mimeType });
     }
   }
+  content.push({ type: "text", text: prompt });
 
-  contents.push({ text: prompt });
-
-  const response = await ai.models.generateContent({
-    model: modelId,
-    contents,
-    config: {
-      responseModalities: ["IMAGE"],
-      imageConfig: {
-        aspectRatio: ASPECT_RATIOS[aspectRatio],
+  const result = await generateText({
+    model: google(modelId),
+    messages: [{ role: "user", content }],
+    providerOptions: {
+      google: {
+        responseModalities: ["IMAGE"],
+        imageConfig: {
+          aspectRatio: ASPECT_RATIOS[aspectRatio],
+        },
       },
     },
   });
 
-  const parts = response.candidates?.[0]?.content?.parts;
-  if (!parts) {
-    throw new Error("No response parts from Gemini image generation");
-  }
-
-  for (const part of parts) {
-    if (part.inlineData) {
+  const files = result.files ?? [];
+  for (const file of files) {
+    if (file.mediaType.startsWith("image/")) {
       return {
-        base64: part.inlineData.data!,
-        mimeType: part.inlineData.mimeType || "image/png",
+        base64: file.base64,
+        mimeType: file.mediaType,
       };
     }
   }
 
-  throw new Error("No image data in Gemini response");
+  throw new Error("No image data in response");
 }
-
-export { ai };
