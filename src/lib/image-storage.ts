@@ -10,12 +10,7 @@ import {
 /**
  * Image storage facade — centralizes every read/write against images so
  * the rest of the app stays agnostic to where the bytes actually live.
- *
- * During the R2 migration, rows may have either:
- *   - `key` set (new rows in R2), or
- *   - `data` set (legacy rows still in postgres as bytea).
- *
- * Reads prefer `key`, fall back to `data`. Writes always go to R2.
+ * All image bytes live in R2; postgres only holds metadata + the R2 key.
  */
 
 const STORED_PREFIX = "stored";
@@ -62,32 +57,25 @@ export async function putGeneratedImage(
 }
 
 /**
- * Reads image bytes for any row with either `key` (R2) or `data` (legacy).
- * Returns a Node `Buffer` which works as `BodyInit` for `NextResponse` and
- * also supports `.toString("base64")` for Gemini reference images.
+ * Reads image bytes from R2. Returns a Node `Buffer` which works as
+ * `BodyInit` for `NextResponse` and also supports `.toString("base64")`
+ * for Gemini reference images.
  *
- * Accepts `Uint8Array | null` for `data` because Prisma's Bytes field
- * type is `Uint8Array`, not `Buffer`.
+ * Throws if the row has no `key` — that indicates a corrupted row (e.g.
+ * a failed generation where the upload never completed).
  */
 export async function readImageBytes(image: {
   key: string | null;
-  data: Uint8Array | null;
   mimeType: string;
 }): Promise<{ buffer: Buffer; mimeType: string }> {
-  if (image.key) {
-    const { body, contentType } = await getFromR2(image.key);
-    return {
-      buffer: Buffer.from(body),
-      mimeType: contentType || image.mimeType,
-    };
+  if (!image.key) {
+    throw new Error("Image row has no R2 key — nothing to serve");
   }
-  if (image.data) {
-    return {
-      buffer: Buffer.from(image.data),
-      mimeType: image.mimeType,
-    };
-  }
-  throw new Error("Image row has neither `key` nor `data` — unreachable");
+  const { body, contentType } = await getFromR2(image.key);
+  return {
+    buffer: Buffer.from(body),
+    mimeType: contentType || image.mimeType,
+  };
 }
 
 /**
