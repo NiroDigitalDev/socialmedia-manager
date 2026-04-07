@@ -1,9 +1,7 @@
 import { generateText } from "ai";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createGateway } from "@ai-sdk/gateway";
 
-const google = createGoogleGenerativeAI({
-  apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
-});
+const gateway = createGateway();
 
 type ContentPart = { text?: string; inlineData?: { data: string; mimeType: string } };
 
@@ -12,7 +10,7 @@ export const geminiText = {
   async generateContent(prompt: string | ContentPart[]) {
     if (typeof prompt === "string") {
       const { text } = await generateText({
-        model: google("gemini-2.5-flash"),
+        model: gateway("google/gemini-2.5-flash"),
         prompt,
       });
       return text ?? "";
@@ -31,7 +29,7 @@ export const geminiText = {
     });
 
     const { text } = await generateText({
-      model: google("gemini-2.5-flash"),
+      model: gateway("google/gemini-2.5-flash"),
       messages: [{ role: "user", content }],
     });
     return text ?? "";
@@ -40,8 +38,8 @@ export const geminiText = {
 
 // Image generation models
 export const GEMINI_IMAGE_MODELS = {
-  "nano-banana-2": "gemini-3.1-flash-image-preview",
-  "nano-banana-pro": "gemini-3-pro-image-preview",
+  "nano-banana-2": "google/gemini-3.1-flash-image-preview",
+  "nano-banana-pro": "google/gemini-3-pro-image-preview",
 } as const;
 
 export type ModelKey = keyof typeof GEMINI_IMAGE_MODELS;
@@ -77,7 +75,7 @@ export async function generateImage(
   content.push({ type: "text", text: prompt });
 
   const result = await generateText({
-    model: google(modelId),
+    model: gateway(modelId),
     messages: [{ role: "user", content }],
     providerOptions: {
       google: {
